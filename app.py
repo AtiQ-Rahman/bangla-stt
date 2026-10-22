@@ -1,6 +1,7 @@
 """Gradio web UI: paste a YouTube link or upload audio/video, get a Bangla or English transcript.
 
 The handlers live in the webui package; this file lays out the page and wires the events."""
+import argparse
 import json
 import logging
 import shutil
@@ -22,6 +23,7 @@ from webui.fixing import refresh_llms, resume_correct, run_correct
 from webui.look import BEEP_JS, CSS, step, THEME
 from webui.opening import (follow_tick, history_choices, history_delete, history_open,
                            history_preview, history_search, open_queue_item, stop_following)
+from webui.phone import USER as PHONE_USER, certificate, lan_ip, new_password
 from webui.sources import (audio_changed, detect_language, get_audio_file, get_video_file,
                            get_youtube, get_youtube_video, selected_part, show_length)
 from webui.transcribing import edited_subtitles, edited_text, resume, run
@@ -366,13 +368,39 @@ class _HideCancelRace(logging.Filter):
             traceback.format_tb(record.exc_info[2])))
 
 
-if __name__ == "__main__":
+def main():
+    parser = argparse.ArgumentParser(description="Bangla & English speech-to-text in the browser.")
+    parser.add_argument("--phone", action="store_true",
+                        help="also open it to phones on the same Wi-Fi (HTTPS, with a password)")
+    parser.add_argument("--password", help="password for --phone (default: a new random one)")
+    parser.add_argument("--port", type=int, default=7860)
+    args = parser.parse_args()
+
     logging.getLogger("uvicorn.error").addFilter(_HideCancelRace())
     history.HISTORY_DIR.mkdir(exist_ok=True)
+    options = {}
+    if args.phone:
+        ip = lan_ip()
+        cert, key = certificate(ip)
+        password = args.password or new_password()
+        options = {"server_name": "0.0.0.0", "ssl_certfile": str(cert), "ssl_keyfile": str(key),
+                   "ssl_verify": False, "auth": (PHONE_USER, password),
+                   "auth_message": "Bangla STT — enter the password shown in the PC's terminal."}
     # No footer links: the API docs, settings and run history are developer tools; History
     # above keeps the results. allowed_paths: History audio is played and downloaded from there.
     demo.queue().launch(theme=THEME, css=CSS, head=BEEP_JS, footer_links=[], run_history=False,
-                        allowed_paths=[str(history.HISTORY_DIR)], prevent_thread_lock=True, quiet=True)
+                        allowed_paths=[str(history.HISTORY_DIR)], prevent_thread_lock=True, quiet=True,
+                        server_port=args.port, **options)
     print(f"Bangla STT is running at {demo.local_url}  —  press Ctrl+C here to stop it.", flush=True)
+    if args.phone:
+        print(f"\nOn your phone (same Wi-Fi) open  https://{ip}:{args.port}\n"
+              f"  user: {PHONE_USER}   password: {password}\n"
+              "  The phone warns that the connection isn't private (the certificate is made by this\n"
+              "  PC): tap Advanced → Proceed. If it can't connect, the PC's firewall may block the port.",
+              flush=True)
     open_browser(demo.local_url)
     demo.block_thread()
+
+
+if __name__ == "__main__":
+    main()

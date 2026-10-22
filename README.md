@@ -10,7 +10,12 @@ transcript, subtitles and more. Runs on CPU; no audio leaves the PC.
 ./install-shortcut.sh    # optional: "Bangla STT" in the app menu and on the desktop
 ```
 
-Opens http://127.0.0.1:7860. Needs `ffmpeg` on the system, and a C++ compiler + cmake the
+Opens http://127.0.0.1:7860.
+
+**From a phone** on the same Wi-Fi: `./run.sh --phone` (optionally `--password …`). The terminal
+shows the address (e.g. `https://192.168.1.20:7860`) and a password. It uses HTTPS with a
+certificate made on this PC, so phone browsers allow the microphone; the phone warns about the
+certificate once — tap *Advanced → Proceed*. Needs `ffmpeg` on the system, and a C++ compiler + cmake the
 first time (to build `kenlm`). Stop the app with **Ctrl+C** (or by closing the shortcut's
 terminal window) — Ctrl+Z only pauses it and keeps its memory.
 

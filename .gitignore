@@ -4,3 +4,4 @@ __pycache__/
 *cookies*.txt
 history/
 .pytest_cache/
+certs/
