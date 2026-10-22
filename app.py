@@ -240,11 +240,12 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
             with gr.Row():
                 live_load = gr.Button("▶ Load model", variant="primary", scale=0, min_width=160)
                 live_save = gr.Button("💾 Save as my default", scale=0, min_width=160)
-            live_status = gr.Markdown("")  # which model is loading / ready / listening
+            live_status = gr.Markdown("")  # the model: loading / ready
             with gr.Row():
                 with gr.Column(scale=2):
                     mic = gr.Audio(sources=["microphone"], type="numpy", streaming=True,
                                    label="3. Microphone — press Record, Stop when done")
+                    live_rec = gr.Markdown("")  # the recording: listening / finishing / saved
                     with gr.Row():
                         live_open = gr.Button("📂 Open in Transcribe", visible=False)
                         live_clear = gr.Button("✕ Clear")
@@ -366,13 +367,13 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     live_load.click(live_ready, [live_model, quantize, use_lm], [live_status, mic], show_progress="hidden")
     live_save.click(save_live_defaults, [live_language, live_model], None)
     mic.start_recording(live_start, [live_text, live_model, quantize, use_lm, hotwords, digits, use_learned],
-                        live_status, show_progress="hidden")
-    mic.stream(live_chunk, mic, [live_text, live_status], stream_every=0.5, time_limit=None,
+                        live_rec, show_progress="hidden")
+    mic.stream(live_chunk, mic, [live_text, live_rec], stream_every=0.5, time_limit=None,
                show_progress="hidden")
-    mic.stop_recording(live_stopping, None, live_status, queue=False).then(
-        live_stop, None, [live_text, live_status, live_txt_btn, live_entry, live_open, mic], show_progress="hidden")
+    mic.stop_recording(live_stopping, None, live_rec, queue=False).then(
+        live_stop, None, [live_text, live_rec, live_txt_btn, live_entry, live_open, mic], show_progress="hidden")
     demo.unload(live_abandoned)  # the page was closed while recording
-    live_clear.click(live_clear_fn, None, [live_text, live_status, live_txt_btn, live_entry, live_open])
+    live_clear.click(live_clear_fn, None, [live_text, live_rec, live_txt_btn, live_entry, live_open])
     watch_on.change(watch.toggle, [watch_on, watch_folder], [watch_timer, watch_msg, watch_on])
     watch_timer.tick(watch.tick, [watch_on, watch_folder, batch_queue, busy],
                      [batch_queue, batch_table, batch_pick, watch_start], show_progress="hidden")

@@ -113,8 +113,8 @@ def live_start(text, model_name, quantize, use_lm, hotwords, digits, use_learned
 def _listening(job: dict) -> str:
     loading = not WORKER.is_loaded(job["model"], job["quantize"])
     if loading:
-        return "🔴 Listening — ⏳ the model is still loading (about a minute); the text catches up."
-    return "🔴 Listening — the text appears after each pause."
+        return "🔴 Listening… the model is still loading, the text will catch up."
+    return "🔴 Listening… the text appears a moment after each pause."
 
 
 def live_chunk(chunk, request: gr.Request):
@@ -160,10 +160,10 @@ def live_stop(request: gr.Request):
     if session["dictation"].error:
         gr.Warning(f"Some speech could not be transcribed: {session['dictation'].error}")
     if not entry:
-        return text, "Nothing was heard — check the microphone.", gr.skip(), gr.skip(), gr.skip(), empty
+        return text, "🔇 Nothing was heard — is the right microphone selected?", gr.skip(), gr.skip(), gr.skip(), empty
     path = out_file(session["job"]["title"], ".txt")
     path.write_text(text, encoding="utf-8")
-    return (text, "✅ Saved in 🕘 History — open it for Read along, subtitles, AI fix…",
+    return (text, "✅ Done — saved in 🕘 History. Press Record to go on, or 📂 Open in Transcribe.",
             file_button(path), str(entry), gr.Button(visible=True), empty)
 
 
@@ -173,7 +173,7 @@ def live_abandoned(request: gr.Request):
 
 
 def live_stopping():
-    return "⏳ Writing the last words…"
+    return "⏳ Stopped — writing your last words (longer with Whisper)…"
 
 
 def live_clear():
