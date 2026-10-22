@@ -6,6 +6,7 @@ needs.
 """
 import json
 import shutil
+import unicodedata
 import time
 from dataclasses import asdict
 from datetime import datetime
@@ -56,14 +57,17 @@ def save_text(entry: Path, name: str, text: str):
 
 
 def _texts(folder: Path) -> str:
-    """Everything searchable in an entry: its transcript and AI-fixed text."""
-    return " ".join((folder / name).read_text(encoding="utf-8")
-                    for name in ("transcript.txt", "corrected.txt") if (folder / name).exists())
+    """Everything searchable in an entry: its transcript and AI-fixed text (Unicode NFC, so typed
+    and transcribed Bangla compare equal)."""
+    return unicodedata.normalize("NFC", " ".join(
+        (folder / name).read_text(encoding="utf-8")
+        for name in ("transcript.txt", "corrected.txt") if (folder / name).exists()))
 
 
 def snippet(folder: Path, query: str, width: int = 60) -> str:
     """The text around the first match of query in an entry ("" if only the title matches)."""
     text = " ".join(_texts(folder).split())
+    query = unicodedata.normalize("NFC", query)
     i = text.lower().find(query.lower())
     if i < 0:
         return ""
@@ -75,7 +79,7 @@ def entries(query: str = "") -> list[tuple[str, str]]:
     """(label, folder) for every entry, newest first; with a query, only those whose title,
     transcript or AI-fixed text contains it (ignoring case)."""
     out = []
-    query = query.strip().lower()
+    query = unicodedata.normalize("NFC", query.strip().lower())
     for entry in sorted(HISTORY_DIR.glob("*/meta.json"), reverse=True):
         try:
             meta = json.loads(entry.read_text(encoding="utf-8"))

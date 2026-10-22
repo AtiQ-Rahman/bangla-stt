@@ -43,6 +43,7 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
 |---|---|
 | Model: MMS 1B (Bangla) | best Bangla accuracy, ~2.5x faster than real time |
 | Model: XLS-R 300M (Bangla) | faster, noticeably more mistakes |
+| Model: Whisper medium Bangla (Bengali.AI) | about as accurate as MMS but spells names and hard words better; no punctuation; 2–5x slower; ~3 GB download and conversion on first use |
 | Model: Whisper large-v3-turbo (English) | best, ~3x faster than real time |
 | Model: Whisper small (English) | ~8x faster, less accurate |
 | Fast mode (int8) | ~1.7x faster and much less RAM, same accuracy |

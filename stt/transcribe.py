@@ -1,10 +1,14 @@
 """Bangla speech recognition on CPU using Hugging Face CTC models."""
 import logging
 import re
+import subprocess
+import sys
 import threading
+import unicodedata
 import warnings
 from dataclasses import dataclass, field
 from functools import lru_cache
+from pathlib import Path
 from typing import Iterator
 
 import numpy as np
@@ -20,12 +24,22 @@ MODELS = {
 }
 DEFAULT_MODEL = next(iter(MODELS))
 
-# English: Whisper via faster-whisper (CTranslate2, int8 on CPU). label -> model size
+# Whisper via faster-whisper (CTranslate2, int8 on CPU): label -> model, language, and for a
+# Hugging Face model that has to be converted first, "convert". "chunk_sec": read the audio in
+# chunks of about that length, cut at quiet moments (the Bangla model was trained on short clips
+# and drops text in Whisper's usual 30 s long-form mode).
 WHISPER_MODELS = {
-    "Whisper large-v3-turbo - best": "large-v3-turbo",
-    "Whisper small - faster": "small",
+    "Whisper large-v3-turbo - best": {"model": "large-v3-turbo", "language": "en"},
+    "Whisper small - faster": {"model": "small", "language": "en"},
+    "Whisper medium Bangla (Bengali.AI) - names, slow": {
+        "model": "bengaliAI/tugstugi_bengaliai-asr_whisper-medium", "language": "bn",
+        "convert": True, "chunk_sec": 14.0},
 }
-LANGUAGE_MODELS = {"Bangla": list(MODELS), "English": list(WHISPER_MODELS)}
+LANGUAGE_MODELS = {
+    "Bangla": list(MODELS) + [m for m, spec in WHISPER_MODELS.items() if spec["language"] == "bn"],
+    "English": [m for m, spec in WHISPER_MODELS.items() if spec["language"] == "en"],
+}
+CT2_DIR = Path.home() / ".cache" / "bangla-stt" / "ct2"  # converted Whisper models
 
 # 5-gram Bangla word language model (~3.5 GB), shipped with the XLS-R model but
 # usable with any character-level Bangla CTC model.
@@ -39,6 +53,8 @@ RAM_NEEDED_GB = {
     ("XLS-R 300M Bengali - faster", True): 1.0, ("XLS-R 300M Bengali - faster", False): 1.5,
     ("Whisper large-v3-turbo - best", True): 3.0, ("Whisper large-v3-turbo - best", False): 3.0,
     ("Whisper small - faster", True): 1.5, ("Whisper small - faster", False): 1.5,
+    ("Whisper medium Bangla (Bengali.AI) - names, slow", True): 3.0,
+    ("Whisper medium Bangla (Bengali.AI) - names, slow", False): 3.0,
 }
 LM_RAM_GB = 2.0  # the LM is memory-mapped, so less than its 3.5 GB stays resident
 
@@ -110,10 +126,28 @@ def _load_whisper(model_name: str):
 
     global _loaded
     _load.cache_clear()
-    model = cached_first(lambda **c: WhisperModel(WHISPER_MODELS[model_name], device="cpu",
-                                                  compute_type="int8", **c))
+    spec = WHISPER_MODELS[model_name]
+    if spec.get("convert"):
+        model = WhisperModel(str(_converted(spec["model"])), device="cpu", compute_type="int8")
+    else:
+        model = cached_first(lambda **c: WhisperModel(spec["model"], device="cpu",
+                                                      compute_type="int8", **c))
     _loaded = (model_name, None)
     return model
+
+
+def _converted(repo: str) -> Path:
+    """A Hugging Face Whisper model in CTranslate2 int8 format, downloaded and converted once."""
+    out = CT2_DIR / repo.split("/")[-1]
+    if not (out / "model.bin").exists():
+        from huggingface_hub import snapshot_download
+
+        source = cached_first(lambda **c: snapshot_download(repo, **c))
+        converter = Path(sys.executable).parent / "ct2-transformers-converter"
+        subprocess.run([str(converter), "--model", source, "--output_dir", str(out), "--quantization",
+                        "int8", "--force", "--copy_files", "tokenizer.json", "preprocessor_config.json"],
+                       check=True, capture_output=True)
+    return out
 
 
 def is_loaded(model_name: str, quantize: bool) -> bool:
@@ -184,11 +218,38 @@ def unload() -> None:
 
 
 def transcribe(wav: np.ndarray, model_name: str = DEFAULT_MODEL, quantize: bool = True,
-               use_lm: bool = True, offset: float = 0.0, max_sec: float = 20.0,
+               use_lm: bool = True, offset: float = 0.0, hotwords: list[str] | None = None,
+               keep_from_sec: float = 0.0) -> Iterator[tuple[int, int, Segment | None]]:
+    """Transcribe piece by piece, yielding (samples_done, total_samples, segment or None if silent).
+
+    offset (seconds) is added to all timestamps, for audio cut out of a longer file.
+    hotwords (names, special terms) are favoured by the decoder when the audio is close to them.
+    keep_from_sec: audio before this point is only context (used when resuming); no words from it.
+    Text is Unicode NFC, so the same word is the same string whichever model wrote it (e.g. য়
+    as one character or as য + nukta).
+    """
+    if model_name in WHISPER_MODELS:
+        pieces = _transcribe_whisper(wav, model_name, offset, hotwords, keep_from_sec)
+    else:
+        pieces = _transcribe_ctc(wav, model_name, quantize, use_lm, offset, hotwords=hotwords,
+                                 keep_from_sec=keep_from_sec)
+    for done, total, seg in pieces:
+        if seg:
+            seg = Segment(seg.start, seg.end, _nfc(seg.text),
+                          [Word(w.start, w.end, _nfc(w.text), w.speaker) for w in seg.words])
+        yield done, total, seg
+
+
+def _nfc(text: str) -> str:
+    return unicodedata.normalize("NFC", text)
+
+
+def _transcribe_ctc(wav: np.ndarray, model_name: str = DEFAULT_MODEL, quantize: bool = True,
+                    use_lm: bool = True, offset: float = 0.0, max_sec: float = 20.0,
                margin_sec: float = 1.0, lead_sec: float = 3.0,
                hotwords: list[str] | None = None,
                keep_from_sec: float = 0.0) -> Iterator[tuple[int, int, Segment | None]]:
-    """Transcribe piece by piece, yielding (samples_done, total_samples, segment or None if silent).
+    """MMS / XLS-R (CTC) transcription, piece by piece.
 
     Voiced spans longer than max_sec are read in windows of max_sec. The models garble
     words cut at a window edge, so the words in the last margin_sec of a window are thrown
@@ -198,9 +259,6 @@ def transcribe(wav: np.ndarray, model_name: str = DEFAULT_MODEL, quantize: bool 
     hotwords (names, special terms) are favoured by the decoder when the audio is close to them.
     keep_from_sec: audio before this point is only context (used when resuming); no words from it.
     """
-    if model_name in WHISPER_MODELS:
-        yield from _transcribe_whisper(wav, model_name, offset, hotwords, keep_from_sec)
-        return
     processor, model = _load(model_name, quantize)
     boost = {"hotwords": hotwords, "hotword_weight": HOTWORD_WEIGHT} if hotwords else {}
     hop = model.config.inputs_to_logits_ratio  # samples per output frame
@@ -249,9 +307,14 @@ def transcribe(wav: np.ndarray, model_name: str = DEFAULT_MODEL, quantize: bool 
 
 def _transcribe_whisper(wav: np.ndarray, model_name: str, offset: float, hotwords: list[str] | None,
                         keep_from_sec: float = 0.0) -> Iterator[tuple[int, int, Segment | None]]:
-    """English with Whisper: it finds sentences, punctuation and word times by itself."""
+    """Whisper: it finds sentences, punctuation (English) and word times by itself."""
     model = _load_whisper(model_name)
-    segments, _ = model.transcribe(wav, language="en", vad_filter=True, word_timestamps=True,
+    spec = WHISPER_MODELS[model_name]
+    if spec.get("chunk_sec"):
+        yield from _whisper_chunks(model, spec, wav, offset, hotwords, keep_from_sec)
+        return
+    segments, _ = model.transcribe(wav, language=spec["language"], vad_filter=True,
+                                   word_timestamps=True,
                                    hotwords=", ".join(hotwords) if hotwords else None)
     total = len(wav)
     for seg in segments:  # a generator: decoding happens as we iterate, so Stop works
@@ -265,6 +328,35 @@ def _transcribe_whisper(wav: np.ndarray, model_name: str, offset: float, hotword
         text = _join(words) if len(words) < len(seg.words or []) else seg.text.strip()
         yield done, total, Segment(words[0].start, offset + seg.end, text, words)
     yield total, total, None
+
+
+def _quietest(wav: np.ndarray, lo: int, hi: int, hop: int = 320) -> int:
+    """Sample index of the lowest-energy frame in wav[lo:hi]."""
+    n = (hi - lo) // hop
+    energy = (wav[lo:lo + n * hop].reshape(n, hop) ** 2).mean(axis=1)
+    return lo + int(np.argmin(energy)) * hop
+
+
+def _whisper_chunks(model, spec: dict, wav: np.ndarray, offset: float, hotwords: list[str] | None,
+                    keep_from_sec: float, search_sec: float = 4.0, silence_rms: float = 1e-3
+                    ) -> Iterator[tuple[int, int, Segment | None]]:
+    """Whisper on chunks of about spec["chunk_sec"], each cut at the quietest moment of its last
+    search_sec; near-silent chunks are skipped (Whisper would invent text for them)."""
+    size, search = int(spec["chunk_sec"] * SAMPLE_RATE), int(search_sec * SAMPLE_RATE)
+    total, s = len(wav), int(keep_from_sec * SAMPLE_RATE)
+    while s < total:
+        e = total if total - s <= size else _quietest(wav, s + size - search, s + size)
+        chunk = wav[s:e]
+        words = []
+        if len(chunk) > SAMPLE_RATE // 4 and float(np.sqrt((chunk ** 2).mean())) > silence_rms:
+            segments, _ = model.transcribe(chunk, language=spec["language"], beam_size=1,
+                                           without_timestamps=True, condition_on_previous_text=False,
+                                           word_timestamps=True, vad_filter=False,
+                                           hotwords=", ".join(hotwords) if hotwords else None)
+            t0 = offset + s / SAMPLE_RATE
+            words = [Word(t0 + w.start, t0 + w.end, w.word) for seg in segments for w in seg.words or []]
+        yield e, total, (Segment(words[0].start, words[-1].end, _join(words), words) if words else None)
+        s = e
 
 
 SENTENCE_END = (".", "?", "!", "।", "॥")

@@ -10,7 +10,7 @@ from stt.audio import cut_clip
 from stt.export import bangla_digits
 from stt.langid import detect
 from stt.retime import retime
-from stt.transcribe import Segment, to_srt, to_text, Word
+from stt.transcribe import Segment, to_srt, to_text, Word, WHISPER_MODELS
 from stt.speakers import label
 from stt.worker import WORKER, WorkerDied
 from webui.common import (bar, check_ram, file_button, fmt_dur, language_of, LIVE, no_file,
@@ -97,7 +97,7 @@ def make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, d
     if start and end and end <= start:
         raise gr.Error("End time must be after start time.")
     words = [w.strip() for w in (hotwords or "").replace("\n", ",").split(",") if w.strip()]
-    use_lm = use_lm and language_of(model_name) == "Bangla"  # Whisper has its own
+    use_lm = use_lm and model_name not in WHISPER_MODELS  # Whisper has its own
     return {"audio": audio, "title": title or Path(audio).stem, "model": model_name,
             "quantize": quantize, "use_lm": use_lm, "words": words, "start": start, "end": end,
             "bn_digits": bool(digits), "speakers": bool(speakers)}
