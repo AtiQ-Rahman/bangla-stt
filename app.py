@@ -30,7 +30,8 @@ from webui.readalong import EMPTY as READALONG_EMPTY, readalong, save_readalong
 from webui.settings import apply_defaults, default_llm, reset_defaults, save_defaults
 from webui.sources import (audio_changed, detect_language, get_audio_file, get_video_file,
                            get_youtube, get_youtube_video, selected_part, show_length)
-from webui.transcribing import edited_subtitles, edited_text, resume, run
+from webui.transcribing import (edited_subtitles, edited_text, learn_edits, learned_words, resume, run,
+                                set_learned_words)
 
 threading.Thread(target=idle_unloader, daemon=True).start()
 
@@ -97,6 +98,14 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                             label="Names or special words in the audio (optional, comma separated)",
                             placeholder="e.g. রাজশাহী, তারেক রহমান, প্রথম আলো",
                             info="Helps the right spelling of names win when the audio sounds close to them.")
+                        use_learned = gr.Checkbox(
+                            value=True, label="Also use the words I corrected before (learned from my edits)")
+                        learned_box = gr.Textbox(
+                            label="Words learned from my edits (this language)", lines=2,
+                            placeholder="Empty so far: fix a word in the transcript or Read along and it "
+                                        "is remembered here",
+                            info="Comma separated. Remove a wrong one, or add your own; saved when you "
+                                 "click outside the box.")
                         use_browser = gr.Checkbox(
                             value=bool(BROWSER), visible=bool(BROWSER),
                             label=f"If YouTube says “confirm you're not a bot”, use my "
@@ -254,7 +263,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
 
     transcribe_event = btn.click(busy_buttons("transcribe"), None, controls).then(
         run, [audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers,
-              video_src, source],
+              use_learned, video_src, source],
         run_outputs,
         show_progress="hidden")  # our own progress bar above the transcript shows it
     resume_event = resume_btn.click(busy_buttons("transcribe"), None, controls).then(
@@ -274,8 +283,8 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
         export_video, [export_which, transcript, corrected, segs, title, video_src],
         [export_bar, save_subtitled], show_progress="hidden")
     batch_event = batch_btn.click(busy_buttons("batch"), None, controls).then(
-        run_batch, [batch_queue, batch_lang, quantize, use_lm, digits, speakers, cookies_file,
-                    use_browser],
+        run_batch, [batch_queue, batch_lang, quantize, use_lm, digits, speakers, use_learned,
+                    cookies_file, use_browser],
         [batch_queue, batch_table, batch_bar], show_progress="hidden")
     for trigger in (batch_add.click, batch_link.submit):
         trigger(add_links, [batch_link, batch_queue], [batch_link, batch_queue, batch_table, batch_pick])
@@ -299,7 +308,8 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     readalong_inputs = [transcript, segs, entry]
     readalong_tab.select(readalong, readalong_inputs, readalong_view)
     ra_save.click(save_readalong, [ra_edit, segs, title, entry],
-                  [transcript, txt_btn, srt_btn, srt_view, readalong_view])
+                  [transcript, txt_btn, srt_btn, srt_view, readalong_view]).then(
+        learn_edits, [transcript, segs, entry, language], learned_box)
     transcript.blur(readalong, readalong_inputs, readalong_view)  # edits there show in Read along too
     for event in (transcribe_event, resume_event, resume_top_event):
         event.success(readalong, readalong_inputs, readalong_view)
@@ -352,6 +362,10 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                      [transcript, title, entry], txt_btn, trigger_mode="always_last")
     transcript.blur(lambda t, s, ti: edited_subtitles(t, s, ti, ".srt"), [transcript, segs, title],
                     [srt_btn, srt_view])
+    transcript.blur(learn_edits, [transcript, segs, entry, language], learned_box)  # see stt.dictionary
+    language.change(learned_words, language, learned_box)
+    demo.load(learned_words, language, learned_box)
+    learned_box.blur(set_learned_words, [learned_box, language], learned_box)
     corrected.input(lambda t, ti, en: edited_text(t, ti, en, "corrected.txt"),
                     [corrected, title, entry], fixed_txt_btn, trigger_mode="always_last")
     corrected.blur(lambda t, s, ti: edited_subtitles(t, s, ti, " (fixed).srt")[0],
@@ -385,11 +399,12 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     refresh.click(refresh_llms, None, llm)
     demo.load(default_llm, None, llm)
     # Defaults: applied when the page opens; saved / reset from Settings.
-    default_outputs = [language, model_name, quantize, use_lm, digits, speakers, use_browser, claude_task,
-                       batch_lang]
+    default_outputs = [language, model_name, quantize, use_lm, digits, speakers, use_learned, use_browser,
+                       claude_task, batch_lang]
     demo.load(apply_defaults, None, default_outputs)
     save_defaults_btn.click(save_defaults, [language, model_name, quantize, use_lm, digits, speakers,
-                                            use_browser, claude_task, llm, batch_lang], defaults_msg)
+                                            use_learned, use_browser, claude_task, llm, batch_lang],
+                            defaults_msg)
     reset_defaults_btn.click(reset_defaults, None, default_outputs + [defaults_msg])
     gr.Timer(5).tick(ram_tick, ram_state, [ram, ram_state, alert], show_progress="hidden").then(
         None, alert, None, js="(signal) => { if (signal) window.sttBeep && window.sttBeep(); }")

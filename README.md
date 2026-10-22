@@ -54,12 +54,13 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
 | Bangla language model | fixes many spellings; 3.5 GB download on first use |
 | Bangla digits | writes ২০ instead of 20 |
 | Names or special words | the decoder prefers their spelling |
+| Words learned from my edits | words you fix in the transcript or Read along are remembered (per language) and used like the special words next time; edit or remove them in the box, or turn it off |
 | Label who is speaking | "Speaker 1 / Speaker 2 …" in the text, subtitles and Read along (models are downloaded once, ~35 MB); takes about a quarter longer |
 | Use my browser login | if YouTube says "confirm you're not a bot", yt-dlp retries with your browser's YouTube cookies (they stay on this PC) |
 
 **Your defaults:** set the language, models and options in *Settings* and press *💾 Save these
 as my defaults* (also keeps the Claude task, the local AI model and the Batch language). They
-are stored in `~/.config/bangla-stt/settings.json`; *↺ Built-in defaults* goes back.
+are stored in `~/.config/bangla-stt/settings.json` (learned words in `dictionary.json` next to it); *↺ Built-in defaults* goes back.
 
 ## Batch and History
 

@@ -68,3 +68,10 @@ def test_retime_ignores_speaker_labels():
     segs = [Segment(0, 2, "hi there", [Word(0, 1, "hi", 1), Word(1, 2, "there", 1)])]
     out = retime("Speaker 1: Hi there.", segs)
     assert [w.text for w in out[0].words] == ["Hi", "there."] and out[0].words[0].speaker == 1
+
+
+def test_speaker_turns_keep_spaces_between_whisper_chunks():
+    """A Whisper chunk's first word has no leading space: it must not stick to the last one."""
+    segs = [Segment(0, 2, "করা হয়েছে", [Word(0, 1, "করা", 1), Word(1, 2, " হয়েছে", 1)]),
+            Segment(2, 4, "বিশ অক্টোবর", [Word(2, 3, "বিশ", 1), Word(3, 4, " অক্টোবর", 1)])]
+    assert to_text(segs) == "Speaker 1: করা হয়েছে বিশ অক্টোবর"

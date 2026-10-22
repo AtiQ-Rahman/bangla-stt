@@ -18,11 +18,14 @@ features; this file is about the code and the lessons learned building it.
 - Run: `./run.sh` (port 7860). Tests: `.venv/bin/python -m pytest -q tests` (~16 s);
   `STT_SAMPLE_BN=<bangla audio>` enables the model tests. Lint: `.venv/bin/python -m pyflakes app.py webui stt tests`.
 - The user's own app usually runs on 7860 — test servers go on 7861 and must not touch
-  `~/.config/bangla-stt` (use a temp settings file) or kill the user's processes.
+  `~/.config/bangla-stt` (start them with `STT_CONFIG_DIR=<temp dir>`) or kill the user's
+  processes; xdg-open is skipped by patching `app.open_browser` in a small launcher.
 
 ## Gotchas (each cost real debugging time)
 - Handlers return positional tuples matching output lists; `tests/test_app.py` checks the counts —
   update `busy_buttons`/`idle_buttons`/`clear_results`/`OPEN_FIELDS` together with the layout.
+- Bangla vowel signs (ী, া …) are not `\w` in Python regex: never strip "punctuation" with `\W`;
+  use `unicodedata.category`. Whisper chunk words may lack the leading space: join with `_join`.
 - Values computed in browser JS cannot reach the server through `gr.State`; use a hidden
   component (`gr.Checkbox`/`gr.Textbox` with `visible=False` or a `.ra-hidden` class).
 - Gradio cancel of a generator only lands when the current `next()` returns, so Stop goes through

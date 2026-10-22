@@ -371,12 +371,18 @@ def to_text(segments: list[Segment], pause_sec: float = 1.5, max_words: int = 60
     (at a sentence end when there is punctuation, as with Whisper). With speakers labelled,
     one paragraph per turn: "Speaker 1: …"."""
     if has_speakers(segments):
-        turns: list[tuple[int | None, list[Word]]] = []
-        for w in (w for seg in segments for w in seg.words):
-            if not turns or turns[-1][0] != w.speaker:
-                turns.append((w.speaker, []))
-            turns[-1][1].append(w)
-        return "\n\n".join(f"Speaker {speaker}: {_join(words)}" for speaker, words in turns)
+        # (speaker, [words of one segment, ...]): segments are joined with a space (a Whisper
+        # chunk's first word has no leading space of its own)
+        turns: list[tuple[int | None, list[list[Word]]]] = []
+        for seg in segments:
+            for i, w in enumerate(seg.words):
+                if not turns or turns[-1][0] != w.speaker:
+                    turns.append((w.speaker, [[]]))
+                elif i == 0:
+                    turns[-1][1].append([])
+                turns[-1][1][-1].append(w)
+        return "\n\n".join(f"Speaker {speaker}: " + " ".join(_join(part) for part in parts if part)
+                             for speaker, parts in turns)
     paragraphs: list[list[str]] = []
     prev = None
     for seg in segments:
@@ -391,10 +397,15 @@ def to_text(segments: list[Segment], pause_sec: float = 1.5, max_words: int = 60
 
 
 def _join(words: list[Word]) -> str:
-    """Whisper words carry their own leading space; the Bangla decoder's words don't."""
-    if any(w.text[:1].isspace() for w in words):
-        return "".join(w.text for w in words).strip()
-    return " ".join(w.text for w in words)
+    """Whisper words carry their own leading space, and one without it that starts with a
+    punctuation mark is the rest of the word before (".edu"); the Bangla decoder's words, and a
+    Whisper chunk's first word, have no space but are words of their own."""
+    out = ""
+    for w in words:
+        text = w.text.strip()
+        glued = out and not w.text[:1].isspace() and not text[:1].isalnum()
+        out += text if glued or not out else " " + text
+    return out
 
 
 def _ts(sec: float) -> str:

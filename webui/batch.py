@@ -53,7 +53,8 @@ def clear_queue():
     return ([],) + queue_views([]) + (gr.HTML(visible=False),)
 
 
-def run_batch(queue, lang_choice, quantize, use_lm, digits, speakers, cookies_file, use_browser):
+def run_batch(queue, lang_choice, quantize, use_lm, digits, speakers, use_learned, cookies_file,
+              use_browser):
     """Transcribe the queued items that aren't done yet, one after another; each goes to History."""
     queue = [dict(item) for item in queue]  # this run's copy; yielded back to the page
     todo = [item for item in queue if item["status"] != "✅ done"]
@@ -82,7 +83,8 @@ def run_batch(queue, lang_choice, quantize, use_lm, digits, speakers, cookies_fi
             language = lang_choice if lang_choice != "Auto" else detect(audio)[0]
             item["language"] = language
             model = LANGUAGE_MODELS[language][0]
-            job = make_job(str(audio), title, model, quantize, use_lm, "", "", "", digits, speakers)
+            job = make_job(str(audio), title, model, quantize, use_lm, "", "", "", digits, speakers,
+                           use_learned)
             if item["kind"] == "file" and Path(item["src"]).suffix.lower() in VIDEO_EXT:
                 job["video"] = item["src"]
             if item["kind"] == "link":

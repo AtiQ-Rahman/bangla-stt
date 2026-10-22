@@ -17,9 +17,9 @@ def test_built_in_until_saved():
 
 def test_save_keeps_each_languages_model():
     bn_whisper = LANGUAGE_MODELS["Bangla"][-1]
-    settings.save_defaults("Bangla", bn_whisper, False, False, True, True, False, "Translate (Bangla ↔ English)",
+    settings.save_defaults("Bangla", bn_whisper, False, False, True, True, True, False, "Translate (Bangla ↔ English)",
                            "gemma3:4b", "English")
-    settings.save_defaults("English", "Whisper small - faster", False, False, True, True, False,
+    settings.save_defaults("English", "Whisper small - faster", False, False, True, True, False, False,
                            "Summarise (bullet points)", "gemma3:4b", "English")
     assert settings.model_for("Bangla") == bn_whisper  # not lost by saving the English choice
     assert settings.model_for("English") == "Whisper small - faster"

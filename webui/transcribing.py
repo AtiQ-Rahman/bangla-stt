@@ -5,7 +5,7 @@ from pathlib import Path
 
 import gradio as gr
 
-from stt import history
+from stt import dictionary, history
 from stt.audio import cut_clip
 from stt.export import bangla_digits
 from stt.langid import detect
@@ -92,22 +92,27 @@ def stage(message: str) -> tuple:
     return (gr.skip(),) * 4 + (message, gr.skip(), bar(message)) + (gr.skip(),) * 3
 
 
-def make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers=False):
+def make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers=False,
+             use_learned=True):
     start, end = parse_time(start), parse_time(end)
     if start and end and end <= start:
         raise gr.Error("End time must be after start time.")
     words = [w.strip() for w in (hotwords or "").replace("\n", ",").split(",") if w.strip()]
+    if use_learned:  # the words the user corrected before; fewer for Whisper (a short prompt)
+        learned = dictionary.words(language_of(model_name), 15 if model_name in WHISPER_MODELS else 50)
+        words += [w for w in learned if w not in words]
     use_lm = use_lm and model_name not in WHISPER_MODELS  # Whisper has its own
     return {"audio": audio, "title": title or Path(audio).stem, "model": model_name,
             "quantize": quantize, "use_lm": use_lm, "words": words, "start": start, "end": end,
             "bn_digits": bool(digits), "speakers": bool(speakers)}
 
 
-def run(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers, video,
-        source):
+def run(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers,
+        use_learned, video, source):
     if not audio:
         raise gr.Error("Add some audio first: get it from YouTube, upload a video or audio file, or record.")
-    job = make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers)
+    job = make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers,
+                   use_learned)
     if video:
         job["video"] = video  # so "video with subtitles" also works when reopened from History
     if source:
@@ -190,6 +195,25 @@ def edited_text(text, title, entry, name):
     if entry:
         history.save_text(Path(entry), name, text or "")
     return file_button(path)
+
+
+def learn_edits(text, segs, entry, language):
+    """Corrected words of an edited transcript go to the user's dictionary (stt.dictionary);
+    returns the language's learned words for the Settings box."""
+    new = dictionary.learn(segs, text, str(entry or "")) if segs else []
+    if not new:
+        return gr.skip()
+    gr.Info("Learned for next time: " + ", ".join(new[:8]) + (" …" if len(new) > 8 else ""))
+    return learned_words(language)
+
+
+def learned_words(language):
+    return ", ".join(dictionary.words(language, limit=1000))
+
+
+def set_learned_words(text, language):
+    dictionary.set_words(language, text)
+    return learned_words(language)
 
 
 def edited_subtitles(text, segs, title, suffix):

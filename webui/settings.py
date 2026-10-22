@@ -1,5 +1,7 @@
-"""The user's own defaults for the settings, kept in ~/.config/bangla-stt/settings.json."""
+"""The user's own defaults for the settings, kept in ~/.config/bangla-stt/settings.json
+(STT_CONFIG_DIR to move it, e.g. for a test server)."""
 import json
+import os
 from pathlib import Path
 
 import gradio as gr
@@ -7,10 +9,10 @@ import gradio as gr
 from stt.correct import DEFAULT_LLM, list_models
 from stt.transcribe import LANGUAGE_MODELS
 
-FILE = Path.home() / ".config" / "bangla-stt" / "settings.json"
+FILE = Path(os.environ.get("STT_CONFIG_DIR", Path.home() / ".config" / "bangla-stt")) / "settings.json"
 BUILT_IN = {"language": "Bangla", "bangla_model": LANGUAGE_MODELS["Bangla"][0],
             "english_model": LANGUAGE_MODELS["English"][0], "quantize": True, "use_lm": True,
-            "digits": False, "speakers": False, "use_browser": True,
+            "digits": False, "speakers": False, "use_learned": True, "use_browser": True,
             "claude_task": "Fix spelling & punctuation", "llm": DEFAULT_LLM, "batch_lang": "Auto"}
 
 
@@ -29,11 +31,12 @@ def model_for(language: str) -> str:
     return choice if choice in LANGUAGE_MODELS[language] else LANGUAGE_MODELS[language][0]
 
 
-def save_defaults(language, model, quantize, use_lm, digits, speakers, use_browser, claude_task, llm,
-                  batch_lang):
+def save_defaults(language, model, quantize, use_lm, digits, speakers, use_learned, use_browser,
+                  claude_task, llm, batch_lang):
     values = load()
     values.update({"language": language, f"{language.lower()}_model": model, "quantize": quantize,
-                   "use_lm": use_lm, "digits": digits, "speakers": speakers, "use_browser": use_browser,
+                   "use_lm": use_lm, "digits": digits, "speakers": speakers, "use_learned": use_learned,
+                   "use_browser": use_browser,
                    "claude_task": claude_task, "llm": llm or DEFAULT_LLM, "batch_lang": batch_lang})
     FILE.parent.mkdir(parents=True, exist_ok=True)
     FILE.write_text(json.dumps(values, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -45,7 +48,7 @@ def apply_defaults():
     v = load()
     models = LANGUAGE_MODELS[v["language"]]
     return (v["language"], gr.Radio(choices=models, value=model_for(v["language"])), v["quantize"],
-            v["use_lm"], v["digits"], v["speakers"], v["use_browser"], v["claude_task"], v["batch_lang"])
+            v["use_lm"], v["digits"], v["speakers"], v["use_learned"], v["use_browser"], v["claude_task"], v["batch_lang"])
 
 
 def reset_defaults():
