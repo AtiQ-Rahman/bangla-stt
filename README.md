@@ -59,6 +59,10 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
 
 ## RAM
 
+The speech models run in a separate worker process: the page stays responsive while they work,
+**Stop** takes effect within a second (even while a model is loading), unloading frees all of
+their memory, and if RAM runs out only the worker ends (the text so far is kept; Resume goes on).
+
 The header shows free RAM; it warns, with a sound, when RAM runs low. Before loading a model
 the app checks there is enough and refuses with a hint otherwise. Models are unloaded after 10
 idle minutes, and before the local AI fix runs. A 2-hour file needs ~3.5 GB while transcribing.

@@ -6,11 +6,12 @@ from pathlib import Path
 import gradio as gr
 
 from stt import history
-from stt.audio import cut_clip, load_audio
+from stt.audio import cut_clip
 from stt.export import bangla_digits
 from stt.langid import detect
 from stt.retime import retime
-from stt.transcribe import is_loaded, Segment, to_srt, to_text, transcribe, Word
+from stt.transcribe import Segment, to_srt, to_text, Word
+from stt.worker import WORKER, WorkerDied
 from webui.common import (bar, check_ram, file_button, fmt_dur, language_of, LIVE, no_file,
                           out_file, parse_time, runtime, time_left, WORK_DIR)
 
@@ -20,19 +21,23 @@ def _work(job: dict, entry: Path, prior: list[Segment], at: float):
     saving progress to the history entry (every 10 s, and when it ends or is stopped).
 
     Yields (segments, fraction done, resume point, length of the range, model was loaded):
-    once before the model loads, then after every piece.
+    once before the model loads, then after every piece. The work itself runs in the worker
+    process (stt.worker).
     """
     begin = job["start"] or 0.0
     # Resuming: hear 3 s before the last word too, as context; words only come after `at`.
     load_from = max(begin, at - 3.0) if prior else at
+    was_loaded = WORKER.is_loaded(job["model"], job["quantize"])
+    pieces = WORKER.transcribe(job["audio"], load_from, job["end"], job["model"], job["quantize"],
+                               job["use_lm"], job["words"], at - load_from)
     try:
-        wav = load_audio(job["audio"], load_from, job["end"])
-    except RuntimeError as e:
+        _, samples = next(pieces)  # ("start", samples) once the worker has read the audio
+    except (WorkerDied, RuntimeError) as e:
         raise gr.Error(f"Could not read the audio: {e}")
-    if not len(wav):
+    if not samples:
+        pieces.close()
         raise gr.Error("No audio left in the selected range.")
-    was_loaded = is_loaded(job["model"], job["quantize"])
-    before, remaining = load_from - begin, len(wav) / 16000
+    before, remaining = load_from - begin, samples / 16000
     audio_sec = before + remaining
     segments, resume_at, finished, saved = list(prior), at, False, time.monotonic()
     digits = job.get("bn_digits") and language_of(job["model"]) == "Bangla"
@@ -41,9 +46,10 @@ def _work(job: dict, entry: Path, prior: list[Segment], at: float):
     runtime.active += 1
     try:
         yield segments, before / audio_sec, resume_at, audio_sec, was_loaded
-        for done, total, seg in transcribe(wav, job["model"], job["quantize"], job["use_lm"],
-                                           offset=load_from, hotwords=job["words"],
-                                           keep_from_sec=at - load_from):
+        for kind, piece in pieces:
+            if kind == "cancelled":  # Stop: the worker ended the job early
+                break
+            done, total, seg = piece
             if seg:
                 if digits:
                     seg = Segment(seg.start, seg.end, bangla_digits(seg.text),
@@ -55,8 +61,14 @@ def _work(job: dict, entry: Path, prior: list[Segment], at: float):
                 history.save(entry, job, segments, resume_at, "running")
                 saved = time.monotonic()
             yield segments, (before + done / total * remaining) / audio_sec, resume_at, audio_sec, was_loaded
-        finished = True
+        else:
+            finished = True
+    except WorkerDied as e:
+        raise gr.Error(f"Transcription failed: {e}. The text so far is kept; ⏯ Resume continues.")
+    except RuntimeError as e:
+        raise gr.Error(f"Transcription failed: {e}")
     finally:
+        pieces.close()
         runtime.active -= 1
         runtime.last_used = time.monotonic()
         history.save(entry, job, segments, resume_at, "done" if finished else "stopped")

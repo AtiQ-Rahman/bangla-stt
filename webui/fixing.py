@@ -7,7 +7,8 @@ import gradio as gr
 from stt import history
 from stt.correct import correct, DEFAULT_LLM, is_loaded as llm_is_loaded, list_models
 from stt.retime import retime
-from stt.transcribe import to_srt, unload
+from stt.transcribe import to_srt
+from stt.worker import WORKER
 from webui.common import bar, file_button, LLM_RAM_GB, mem_gb, no_file, out_file, runtime, time_left
 
 
@@ -24,7 +25,7 @@ def run_correct(text, llm, language, segs, title, entry, fix_partial, resuming=F
         done, reverted = fix_partial["done"], fix_partial["reverted"]
     else:
         done, reverted = [], 0
-    unload()  # the speech models and the LLM together don't fit in 16 GB RAM
+    WORKER.kill()  # the speech models and the LLM together don't fit in 16 GB RAM
     avail, _ = mem_gb()
     if avail < LLM_RAM_GB and not llm_is_loaded(llm):  # e.g. resuming: it is still loaded
         raise gr.Error(f"Not enough free RAM for the LLM ({avail:.1f} GB free, ~{LLM_RAM_GB:.0f} GB needed).")

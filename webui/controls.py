@@ -2,6 +2,7 @@
 import gradio as gr
 
 from stt.transcribe import LANGUAGE_MODELS
+from stt.worker import WORKER
 from webui.common import bar, fmt_dur, no_file
 
 
@@ -28,6 +29,8 @@ def idle_buttons(audio, text, partial, fix_partial):
 
 
 def stopped(audio, text, partial, fix_partial, kind):
+    if kind in ("transcribe", "batch"):
+        WORKER.cancel()  # the worker ends the job after the current piece
     message = "⏹ Stopped."
     pbar_update, fix_update = gr.skip(), gr.skip()
     if kind == "transcribe":

@@ -10,7 +10,8 @@ from pathlib import Path
 import gradio as gr
 
 from stt.audio import browser_profile
-from stt.transcribe import is_loaded, LANGUAGE_MODELS, LM_RAM_GB, RAM_NEEDED_GB, unload
+from stt.transcribe import LANGUAGE_MODELS, LM_RAM_GB, RAM_NEEDED_GB
+from stt.worker import WORKER
 
 
 # All temporary files of this app live in a per-process folder, emptied per
@@ -91,11 +92,11 @@ def idle_unloader():
     while True:
         time.sleep(60)
         if not runtime.active and time.monotonic() - runtime.last_used > IDLE_UNLOAD_SEC:
-            unload()
+            WORKER.kill()  # ends the worker process: all of its memory is freed
 
 
 def check_ram(model_name: str, quantize: bool, use_lm: bool):
-    if is_loaded(model_name, quantize):
+    if WORKER.is_loaded(model_name, quantize):
         return
     avail, _ = mem_gb()
     need = RAM_NEEDED_GB[(model_name, quantize)]
