@@ -1,14 +1,20 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch
-transformers
-librosa
-soundfile
-gradio
-yt-dlp[default]
-yt-dlp-ejs
-deno
-# Bangla language-model decoding (pyctcdecode needs numpy<2)
-pyctcdecode
+# Pinned to versions this app is tested with: Gradio and transformers change their APIs often.
+torch==2.14.1
+transformers==5.20.2
+huggingface-hub==2.2.0
+librosa==0.11.0
+soundfile==0.14.0
+gradio==6.30.0
+numpy==1.26.4  # pyctcdecode needs numpy<2
+# yt-dlp is left free to update: it must keep up with YouTube's changes.
+yt-dlp[default]>=2026.8.19
+yt-dlp-ejs>=0.8.0
+deno>=2.9.7
+# Bangla language-model decoding
+pyctcdecode==0.5.0
 kenlm @ https://github.com/kpu/kenlm/archive/master.zip
 # English (Whisper) and Bangla/English language detection
-faster-whisper
+faster-whisper==1.2.1
+# Word export
+python-docx==1.2.0

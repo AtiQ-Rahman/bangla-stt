@@ -51,6 +51,15 @@ def list_models() -> list[str]:
         return []
 
 
+def is_loaded(model: str) -> bool:
+    """True if Ollama already holds this model in memory (so it needs no more RAM)."""
+    try:
+        with urllib.request.urlopen(f"{OLLAMA_URL}/api/ps", timeout=3) as r:
+            return any(m["name"] == model for m in json.load(r)["models"])
+    except OSError:
+        return False
+
+
 def _generate(prompt: str, model: str) -> Iterator[str]:
     # keep_alive: unload the model soon after we are done; RAM is tight next to the STT models.
     body = json.dumps({"model": model, "prompt": prompt, "stream": True, "keep_alive": "30s",
@@ -116,23 +125,25 @@ def _chunks(words: list[str], size: int) -> Iterator[str]:
         i = j
 
 
-def correct(text: str, model: str = DEFAULT_LLM, language: str = "Bangla",
-            chunk_words: int = 80) -> Iterator[tuple[str, int]]:
+def correct(text: str, model: str = DEFAULT_LLM, language: str = "Bangla", chunk_words: int = 80,
+            done: list[str] | None = None, reverted: int = 0
+            ) -> Iterator[tuple[str, int, list[str], int]]:
     """Correct the transcript in pieces of about chunk_words words.
 
-    Yields (text so far, changes reverted). Transcript lines are cut at arbitrary points
-    mid-sentence, so they are joined first; the LLM places the sentence breaks. Each piece
-    goes through _merge(), so the LLM can fix spelling but cannot change what was said.
+    Yields (text so far, changes reverted, finished pieces, number of pieces). Transcript
+    lines are cut at arbitrary points mid-sentence, so they are joined first; the LLM places
+    the sentence breaks. Each piece goes through _merge(), so the LLM can fix spelling but
+    cannot change what was said. Pass back `done` and `reverted` from a stopped run to
+    resume it (with the same text).
     """
-    words = text.split()
-    done: list[str] = []
-    reverted = 0
-    for original in _chunks(words, chunk_words):
+    pieces = list(_chunks(text.split(), chunk_words))
+    done = list(done or [])
+    for original in pieces[len(done):]:
         cur = ""
         for piece in _generate(PROMPTS[language].format(text=original), model):
             cur += piece
-            yield " ".join(done + [cur.strip()]), reverted
+            yield " ".join(done + [cur.strip()]), reverted, done, len(pieces)
         merged, n = _merge(original, cur, language)
-        done.append(merged)
+        done = done + [merged]
         reverted += n
-        yield " ".join(done), reverted
+        yield " ".join(done), reverted, done, len(pieces)

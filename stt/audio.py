@@ -29,7 +29,46 @@ def _youtube_dl(opts: dict):
     return QuietYoutubeDL(opts)
 
 
-def download_youtube(url: str, out_dir: Path, cookies: str | None = None) -> tuple[Path, str]:
+# Where browsers keep their profile; yt-dlp reads YouTube login cookies from there.
+_BROWSER_PROFILES = [
+    ("brave", "~/snap/brave/current/.config/BraveSoftware/Brave-Browser"),
+    ("brave", "~/.config/BraveSoftware/Brave-Browser"),
+    ("chrome", "~/.config/google-chrome"),
+    ("chromium", "~/snap/chromium/common/chromium"),
+    ("chromium", "~/.config/chromium"),
+    ("firefox", "~/snap/firefox/common/.mozilla/firefox"),
+    ("firefox", "~/.mozilla/firefox"),
+]
+
+
+def browser_profile() -> tuple[str, str] | None:
+    """(browser, profile folder) of the first browser found on this PC, for its cookies."""
+    for name, folder in _BROWSER_PROFILES:
+        path = Path(folder).expanduser()
+        if path.is_dir():
+            return name, str(path)
+    return None
+
+
+def _download(url: str, opts: dict, cookies: str | None, browser: tuple[str, str] | None) -> tuple[Path, dict]:
+    """Run yt-dlp; when YouTube asks to sign in (bot check), retry with the browser's cookies."""
+    if cookies:
+        opts["cookiefile"] = cookies
+    try:
+        with _youtube_dl(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            return Path(ydl.prepare_filename(info)), info
+    except Exception as e:
+        if not browser or cookies or "Sign in" not in str(e):
+            raise
+    opts["cookiesfrombrowser"] = (browser[0], browser[1], None, None)
+    with _youtube_dl(opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        return Path(ydl.prepare_filename(info)), info
+
+
+def download_youtube(url: str, out_dir: Path, cookies: str | None = None,
+                     browser: tuple[str, str] | None = None) -> tuple[Path, str]:
     """Download the audio track of a YouTube video into out_dir. Returns (path, title)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     opts = {
@@ -40,15 +79,12 @@ def download_youtube(url: str, out_dir: Path, cookies: str | None = None) -> tup
         "noprogress": True,
         "noplaylist": True,
     }
-    if cookies:
-        opts["cookiefile"] = cookies
-    with _youtube_dl(opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        path = Path(ydl.prepare_filename(info))
+    path, info = _download(url, opts, cookies, browser)
     return path, info.get("title") or "youtube"
 
 
-def download_youtube_video(url: str, out_dir: Path, cookies: str | None = None) -> tuple[Path, str]:
+def download_youtube_video(url: str, out_dir: Path, cookies: str | None = None,
+                           browser: tuple[str, str] | None = None) -> tuple[Path, str]:
     """Download a YouTube video (up to 720p, mp4) into out_dir. Returns (path, title)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     opts = {
@@ -60,12 +96,8 @@ def download_youtube_video(url: str, out_dir: Path, cookies: str | None = None) 
         "noprogress": True,
         "noplaylist": True,
     }
-    if cookies:
-        opts["cookiefile"] = cookies
-    with _youtube_dl(opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        path = Path(ydl.prepare_filename(info)).with_suffix(".mp4")
-    return path, info.get("title") or "youtube"
+    path, info = _download(url, opts, cookies, browser)
+    return path.with_suffix(".mp4"), info.get("title") or "youtube"
 
 
 def load_audio(path: str | Path, start: float | None = None, end: float | None = None) -> np.ndarray:

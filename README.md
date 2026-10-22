@@ -1,52 +1,64 @@
 # Bangla STT
 
 Local Bangla and English speech-to-text: paste a YouTube link or upload audio/video, get a
-transcript (`.txt`) and subtitles (`.srt`). Runs on CPU; no audio leaves the PC.
+transcript, subtitles and more. Runs on CPU; no audio leaves the PC.
 
 ## Run
 
 ```bash
-./run.sh            # creates .venv and installs requirements on first run / when they change
+./run.sh                 # creates .venv and installs requirements on first run / when they change
+./install-shortcut.sh    # optional: "Bangla STT" in the app menu and on the desktop
 ```
 
-Opens http://127.0.0.1:7860. Needs `ffmpeg` on the system and a C++ compiler +
-cmake the first time (to build `kenlm`).
+Opens http://127.0.0.1:7860. Needs `ffmpeg` on the system, and a C++ compiler + cmake the
+first time (to build `kenlm`). Stop the app with **Ctrl+C** (or by closing the shortcut's
+terminal window) — Ctrl+Z only pauses it and keeps its memory.
 
-## Using it
+## Transcribe
 
 1. **Get the audio**: in the *YouTube* tab paste a link and press *Audio only*, or
-   *Video + audio* to also get the video file to save. In *From your computer* pick a
-   video or audio file. Or record with the microphone. The audio lands in the player:
-   listen, cut it with ✂, or type *From* / *To* (`90`, `1:30`, `0:01:30`) — the selected
-   part appears below. The language (Bangla or English) is detected and set for you.
-2. **Transcribe**. The text appears piece by piece under a progress bar. **Stop** keeps
-   what is done so far, and **⏯ Resume** later continues from the last word (same audio
-   and settings). **Clear results** empties the results but keeps the audio. The transcript
-   box is editable.
-3. **Use the text**: download `.txt` / `.srt`, or **Send to Claude** — picks a task
-   (fix spelling, summarise, translate, or your own), copies prompt + transcript to the
-   clipboard and opens claude.ai with it (paste with Ctrl+V if it isn't filled in).
-   With the Claude in Chrome extension you can also just ask it about the transcript on
-   this page.
-
-In *Settings*, list names or special words in the audio (comma separated) so the decoder
-prefers their correct spelling.
+   *Video + audio* to also get the video file. In *From your computer* pick a video or audio
+   file. Or record with the microphone. Listen, cut with ✂, or type *From* / *To*
+   (`90`, `1:30`, `0:01:30`). The language (Bangla or English) is detected and set for you.
+2. **Transcribe**. A progress bar shows how far it is and the time left. **Stop** keeps what
+   is done; **⏯ Resume** continues from the last word. The transcript box is editable and the
+   downloads (.txt, .srt) follow your edits.
+3. **Use the text**:
+   - *AI-fixed (local)*: punctuation and spelling with a free local model (below); it can be
+     stopped and resumed too, and gives fixed .txt and .srt.
+   - *Export*: `.vtt` subtitles, a Word `.docx`, and the **video with subtitles burned in**
+     (for audio that came from a video).
+   - **Send to Claude** with a task (fix, summarise, translate, or your own): the prompt and
+     text are copied and claude.ai opens — paste with Ctrl+V. The Claude in Chrome extension
+     can also read the transcript on this page directly.
 
 | Setting | Effect |
 |---|---|
-| Language: English | uses Whisper (large-v3-turbo, the default: best, ~3x faster than real time; small: ~8x faster, less accurate) |
-| Model: MMS 1B | best accuracy (~0.35x real time on an i7-1165G7 with the defaults) |
-| Model: XLS-R 300M | several times faster, noticeably more mistakes |
+| Model: MMS 1B (Bangla) | best Bangla accuracy, ~2.5x faster than real time |
+| Model: XLS-R 300M (Bangla) | faster, noticeably more mistakes |
+| Model: Whisper large-v3-turbo (English) | best, ~3x faster than real time |
+| Model: Whisper small (English) | ~8x faster, less accurate |
 | Fast mode (int8) | ~1.7x faster and much less RAM, same accuracy |
 | Bangla language model | fixes many spellings; 3.5 GB download on first use |
+| Bangla digits | writes ২০ instead of 20 |
+| Names or special words | the decoder prefers their spelling |
+| Use my browser login | if YouTube says "confirm you're not a bot", yt-dlp retries with your browser's YouTube cookies (they stay on this PC) |
+
+## Batch and History
+
+- **📚 Batch**: many files and/or YouTube links, one after another; the language of each is
+  detected. Leave it running.
+- **🕘 History**: every transcription (audio, text, subtitles, AI-fixed text, progress) is kept
+  in the `history` folder. Open one to read, download or **Resume** it — even after the app or
+  the PC was restarted. Delete entries you no longer need (the audio copies take space).
 
 ## RAM
 
-The header shows free RAM. Before loading a model the app checks there is enough
-(MMS ~2.5 GB, XLS-R ~1 GB with Fast mode) and refuses with a hint otherwise. The models
-are unloaded after 10 idle minutes, and before the local AI fix runs.
+The header shows free RAM; it warns, with a sound, when RAM runs low. Before loading a model
+the app checks there is enough and refuses with a hint otherwise. Models are unloaded after 10
+idle minutes, and before the local AI fix runs. A 2-hour file needs ~3.5 GB while transcribing.
 
-## Fix the transcript with a local LLM (optional)
+## Local AI fix (optional)
 
 Adds punctuation and fixes spelling with a free model served by [Ollama](https://ollama.com):
 
@@ -56,8 +68,5 @@ docker exec ollama ollama pull gemma3:4b
 # after a reboot: docker start ollama
 ```
 
-Then open the "AI-fixed (local)" tab, press ↻ to list models and *Fix transcript*.
-The fix is word-guarded: the AI may re-spell words and add punctuation, but changes that
-add, drop or reword words, or use another script, are undone. Bigger models fix more
-(`ollama pull gemma3:12b`, ~8 GB, slower); Claude is still clearly better.
-The speech models are unloaded before the LLM runs, because both do not fit in 16 GB RAM.
+The fix is word-guarded: the AI may re-spell words and add punctuation, but changes that add,
+drop or reword words, or use another script, are undone. Claude is still clearly better.
