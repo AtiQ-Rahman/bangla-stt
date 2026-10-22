@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -1244,6 +1245,18 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
         None, alert, None, js="(signal) => { if (signal) window.sttBeep && window.sttBeep(); }")
 
 
+def open_browser(url: str):
+    """Open the app in the default browser without its startup chatter in this terminal
+    (a browser that is already running prints e.g. "zygote … Broken pipe" while handing over)."""
+    opener = shutil.which("xdg-open")
+    if opener:
+        subprocess.Popen([opener, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    else:
+        import webbrowser
+        webbrowser.open(url)
+
+
 class _HideCancelRace(logging.Filter):
     """Gradio 6.30 may get two cancel requests for one event and fail the second with a
     KeyError in cancel_event (the event is already cancelled). Harmless; don't print it."""
@@ -1259,5 +1272,8 @@ if __name__ == "__main__":
     history.HISTORY_DIR.mkdir(exist_ok=True)
     # No footer links: the API docs, settings and run history are developer tools; History
     # above keeps the results. allowed_paths: History audio is played and downloaded from there.
-    demo.queue().launch(inbrowser=True, theme=THEME, css=CSS, head=BEEP_JS, footer_links=[],
-                        run_history=False, allowed_paths=[str(history.HISTORY_DIR)])
+    demo.queue().launch(theme=THEME, css=CSS, head=BEEP_JS, footer_links=[], run_history=False,
+                        allowed_paths=[str(history.HISTORY_DIR)], prevent_thread_lock=True, quiet=True)
+    print(f"Bangla STT is running at {demo.local_url}  —  press Ctrl+C here to stop it.", flush=True)
+    open_browser(demo.local_url)
+    demo.block_thread()
