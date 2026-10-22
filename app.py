@@ -1,11 +1,14 @@
 """Gradio web UI: paste a YouTube link or upload audio/video, get a Bangla or English transcript."""
 import atexit
+import html
 import json
+import logging
 import os
 import shutil
 import tempfile
 import threading
 import time
+import traceback
 from pathlib import Path
 
 import gradio as gr
@@ -311,7 +314,7 @@ def audio_changed(audio, partial):
     History; Gradio hands over a copy, so the size is compared)."""
     same = (audio and partial and Path(partial["job"]["audio"]).exists()
             and os.path.getsize(audio) == os.path.getsize(partial["job"]["audio"]))
-    return (gr.skip(), gr.skip()) if same else (None, gr.Button(visible=False))
+    return (gr.skip(),) * 3 if same else (None, gr.Button(visible=False), gr.Button(visible=False))
 
 
 # ---- transcribing ---------------------------------------------------------------------------
@@ -570,50 +573,102 @@ def export_video(which, transcript_text, fixed_text, segs, title, video_src):
 
 # ---- batch ----------------------------------------------------------------------------------
 
-def run_batch(files, links, lang_choice, quantize, use_lm, digits, cookies_file, use_browser):
-    """Transcribe many files/links one after another; each lands in History."""
-    items = [("file", f) for f in files or []]
-    items += [("link", u.strip()) for u in (links or "").splitlines() if u.strip()]
-    if not items:
-        raise gr.Error("Add some files or YouTube links first.")
-    rows = [[i + 1, Path(src).name if kind == "file" else src, "", "waiting"]
-            for i, (kind, src) in enumerate(items)]
+_queue_ids = iter(range(1, 10**9))
+
+
+def queue_html(queue: list[dict]) -> str:
+    """The batch queue as a table; links open in a new tab."""
+    if not queue:
+        return ('<div class="queue-empty">The queue is empty. Add YouTube links or audio/video files '
+                'on the left.</div>')
+    rows = []
+    for n, item in enumerate(queue, 1):
+        name = html.escape(item["name"])
+        if item["kind"] == "link":
+            name = (f'<a href="{html.escape(item["src"], quote=True)}" target="_blank" '
+                    f'rel="noopener">{name} ↗</a>')
+        rows.append(f"<tr><td>{n}</td><td>{'🔗' if item['kind'] == 'link' else '🎞️'} {name}</td>"
+                    f"<td>{html.escape(item.get('language', ''))}</td>"
+                    f"<td>{html.escape(item['status'])}</td></tr>")
+    return ('<table class="queue"><thead><tr><th>#</th><th>Item</th><th>Language</th><th>Status</th>'
+            f'</tr></thead><tbody>{"".join(rows)}</tbody></table>')
+
+
+def queue_views(queue):
+    """The table, plus the item picker for Remove (only items not yet done make sense there)."""
+    choices = [(f"{n}. {item['name'][:60]}", item["id"]) for n, item in enumerate(queue, 1)]
+    return queue_html(queue), gr.Dropdown(choices=choices, value=[])
+
+
+def add_links(text, queue):
+    """Add every link in the box (one or many, any separators) and empty the box."""
+    links = [w for w in (text or "").replace(",", " ").split() if w.startswith(("http://", "https://"))]
+    if not links:
+        raise gr.Error("Paste a YouTube link (starting with https://) first.")
+    queue = queue + [{"id": next(_queue_ids), "kind": "link", "src": u, "name": u, "status": "waiting"}
+                     for u in links]
+    return ("", queue) + queue_views(queue)
+
+
+def add_files(files, queue):
+    queue = queue + [{"id": next(_queue_ids), "kind": "file", "src": f, "name": Path(f).name,
+                      "status": "waiting"} for f in files or []]
+    return (queue,) + queue_views(queue)
+
+
+def remove_items(ids, queue):
+    queue = [item for item in queue if item["id"] not in set(ids or [])]
+    return (queue,) + queue_views(queue)
+
+
+def clear_queue():
+    return ([],) + queue_views([]) + (gr.HTML(visible=False),)
+
+
+def run_batch(queue, lang_choice, quantize, use_lm, digits, cookies_file, use_browser):
+    """Transcribe the queued items that aren't done yet, one after another; each goes to History."""
+    queue = [dict(item) for item in queue]  # this run's copy; yielded back to the page
+    todo = [item for item in queue if item["status"] != "✅ done"]
+    if not todo:
+        raise gr.Error("Nothing to do: add YouTube links or files to the queue first.")
     work = WORK_DIR / "batch"
     first = None
-    for i, (kind, src) in enumerate(items):
+    for i, item in enumerate(todo):
         def show(status, frac=0.0):
-            rows[i][3] = status
-            overall = (i + frac) / len(items)
-            return rows, bar(f"⏳ Item {i + 1} of {len(items)}{time_left(first, overall)}", overall)
+            item["status"] = status
+            overall = (i + frac) / len(todo)
+            return (queue, queue_html(queue),
+                    bar(f"⏳ Item {i + 1} of {len(todo)}{time_left(first, overall)}", overall))
 
         shutil.rmtree(work, ignore_errors=True)
         work.mkdir(parents=True)
         try:
             yield show("getting the audio…")
-            if kind == "link":
-                path, title = download_youtube(src, work / "download",
+            if item["kind"] == "link":
+                path, title = download_youtube(item["src"], work / "download",
                                                *cookie_args(cookies_file, use_browser))
             else:
-                path, title = Path(src), Path(src).stem
-            rows[i][1] = title
+                path, title = Path(item["src"]), Path(item["src"]).stem
+            item["name"] = title
             audio = cut_clip(path, work / "audio.mp3")
             language = lang_choice if lang_choice != "Auto" else detect(audio)[0]
-            rows[i][2] = language
+            item["language"] = language
             model = LANGUAGE_MODELS[language][0]
             job = make_job(str(audio), title, model, quantize, use_lm, "", "", "", digits)
             check_ram(model, quantize, job["use_lm"])
             entry = history.create(job)
             yield show("loading the model…")
             for _, frac, _, _, _ in _work(job, entry, [], 0.0):
-                first = first or (time.monotonic(), (i + frac) / len(items))
+                first = first or (time.monotonic(), (i + frac) / len(todo))
                 yield show(f"transcribing {frac:.0%}", frac)
-            rows[i][3] = "✅ done"
+            item["status"] = "✅ done"
         except Exception as e:  # one bad item shouldn't stop the rest
-            rows[i][3] = f"❌ {e}"[:120]
-        yield rows, bar(f"⏳ Item {i + 1} of {len(items)}", (i + 1) / len(items))
+            item["status"] = f"❌ {e}"[:120]
+        yield queue, queue_html(queue), bar(f"⏳ Item {i + 1} of {len(todo)}", (i + 1) / len(todo))
     shutil.rmtree(work, ignore_errors=True)
-    ok = sum(r[3] == "✅ done" for r in rows)
-    yield rows, bar(f"✅ Batch finished: {ok} of {len(items)} done · open them in History", 1, done=True)
+    ok = sum(item["status"] == "✅ done" for item in todo)
+    yield (queue, queue_html(queue),
+           bar(f"✅ Finished: {ok} of {len(todo)} done · open them in 🕘 History", 1, done=True))
 
 
 # ---- history --------------------------------------------------------------------------------
@@ -658,7 +713,7 @@ def history_open(folder):
         note = f"Loaded from History — stopped at {fmt_dur(meta['at'])}: press ⏯ Resume to continue."
     return (gr.Tabs(selected="main"), job["audio"], job["title"], language_of(job["model"]), text,
             file_button(txt), file_button(srt_path), srt, fixed, note, partial, segs, str(entry),
-            gr.Button(visible=bool(partial)), None)
+            gr.Button(visible=bool(partial)), gr.Button(visible=bool(partial)), None)
 
 
 def history_delete(folder):
@@ -675,7 +730,8 @@ def busy_buttons(kind):
         off = gr.Button(interactive=False)
         return (gr.Button("⏳ Working…", interactive=False), gr.Button(interactive=True),
                 gr.Button(visible=kind == "transcribe"), off, off, off, off,
-                gr.Button(visible=False), off, gr.Button(interactive=True),
+                gr.Button(visible=False), gr.Button(visible=False), off, gr.Button(interactive=True),
+                *(gr.update(interactive=False),) * 4,
                 gr.Button(visible=False), off, kind)
     return busy
 
@@ -685,7 +741,8 @@ def idle_buttons(audio, text, partial, fix_partial):
     on = gr.Button(interactive=True)
     return (gr.Button("▶ Transcribe", interactive=bool(audio)), gr.Button(interactive=False),
             gr.Button(visible=False), gr.Button(interactive=bool((text or "").strip())), on, on, on,
-            gr.Button(visible=bool(partial)), on, gr.Button(interactive=False),
+            gr.Button(visible=bool(partial)), gr.Button(visible=bool(partial)), on,
+            gr.Button(interactive=False), *(gr.update(interactive=True),) * 4,
             gr.Button(visible=bool(fix_partial)), on, "")
 
 
@@ -709,6 +766,14 @@ def enable_if(value, busy):
     return gr.skip() if busy else gr.Button(interactive=bool(value and str(value).strip()))
 
 
+def text_choices(fixed):
+    """Offer "AI-fixed text" (to send or export) only once there is some."""
+    has_fixed = bool((fixed or "").strip())
+    choices = ["Transcript", "AI-fixed text"] if has_fixed else ["Transcript"]
+    radio = gr.Radio(choices=choices) if has_fixed else gr.Radio(choices=choices, value="Transcript")
+    return radio, radio
+
+
 def pick_language(language):
     """Show the models and options that fit the chosen language."""
     bangla = language == "Bangla"
@@ -723,8 +788,8 @@ def clear_results():
     """Empty the results and the From/To range; the audio and any downloaded video stay."""
     return ("", "", "", no_file(), no_file(), "", "", no_file(), no_file(), "Cleared.",
             gr.Audio(value=None, visible=False), gr.HTML(visible=False), gr.Button(visible=False), "",
-            None, gr.Button(visible=False), None, None, gr.HTML(visible=False), None,
-            gr.Button(visible=False))
+            None, gr.Button(visible=False), gr.Button(visible=False), None, None, gr.HTML(visible=False),
+            None, gr.Button(visible=False))
 
 
 # ---- Send to Claude -------------------------------------------------------------------------
@@ -862,6 +927,14 @@ CSS = """
             background: var(--block-background-fill); border: 1px solid var(--border-color-primary); }
 #status p:empty { display: none; }
 #alert { display: none; }
+table.queue { width: 100%; border-collapse: collapse; font-size: 0.95rem; border: none !important; }
+table.queue th, table.queue td { text-align: left; padding: 8px 10px; border: none !important;
+                                 border-bottom: 1px solid var(--border-color-primary) !important; }
+table.queue th { color: var(--body-text-color-subdued); font-weight: 600; }
+table.queue td:first-child, table.queue th:first-child { width: 2.5em; }
+table.queue a { color: var(--color-accent); }
+.queue-empty { padding: 24px; text-align: center; color: var(--body-text-color-subdued);
+               border: 1px dashed var(--border-color-primary); border-radius: 12px; }
 """
 
 
@@ -880,6 +953,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     segs = gr.State(None)  # the timed pieces of the current transcript, for subtitles
     entry = gr.State(None)  # the History folder of the current transcript
     video_src = gr.State(None)  # the video the audio came from, for subtitled video export
+    batch_queue = gr.State([])  # the Batch tab's items: {id, kind, src, name, status, language}
 
     with gr.Row(elem_id="header"):
         gr.Markdown("# 🎙️ Bangla & English Speech-to-Text\n"
@@ -948,6 +1022,8 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                         pbar = gr.HTML("", padding=False, visible=False, scale=1)  # while transcribing
                         stop_top = gr.Button("■ Stop", visible=False, scale=0, min_width=100,
                                              elem_classes="stop-btn")
+                        resume_top = gr.Button("⏯ Resume", visible=False, scale=0, min_width=120,
+                                               variant="primary")
                     with gr.Tabs():
                         with gr.Tab("Transcript"):
                             transcript = gr.Textbox(
@@ -977,7 +1053,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                                 fixed_srt_btn = gr.DownloadButton("⬇ Fixed subtitles (.srt)",
                                                                   interactive=False)
                         with gr.Tab("⬇ Export"):
-                            export_which = gr.Radio(["Transcript", "AI-fixed text"], value="Transcript",
+                            export_which = gr.Radio(["Transcript"], value="Transcript",
                                                     label="Export which text")
                             export_btn = gr.Button("📄 Make .vtt subtitles and a Word (.docx) file")
                             export_out = gr.File(label="Files", file_count="multiple", visible=False)
@@ -994,8 +1070,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                     step("③ Send to Claude")
                     with gr.Group():
                         with gr.Row(equal_height=True):
-                            claude_text = gr.Radio(["Transcript", "AI-fixed text"], value="Transcript",
-                                                   label="Text to send")
+                            claude_text = gr.Radio(["Transcript"], value="Transcript", label="Text to send")
                             claude_task = gr.Dropdown(list(CLAUDE_TASKS), value=next(iter(CLAUDE_TASKS)),
                                                       label="Ask Claude to…")
                         claude_custom = gr.Textbox(label="Your instruction (only for Custom)", lines=1,
@@ -1004,24 +1079,35 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                     claude_status = gr.Markdown("", elem_id="claude-status")
 
         with gr.Tab("📚 Batch", id="batch"):
-            gr.Markdown("Transcribe many files or YouTube links one after another — leave it running. "
-                        "Each one is saved in **History**. Uses the Settings of the Transcribe tab.")
+            gr.Markdown("Queue up YouTube links and audio/video files, then start — they are "
+                        "transcribed one after another and saved in **🕘 History**. Uses the "
+                        "Settings of the Transcribe tab.")
             with gr.Row():
-                with gr.Column():
-                    batch_files = gr.File(label="Audio or video files", file_count="multiple",
-                                          file_types=["audio", "video"], type="filepath", height=140)
-                    batch_links = gr.Textbox(label="YouTube links, one per line", lines=4)
+                with gr.Column(scale=2):
+                    step("① Add to the queue")
+                    with gr.Group():
+                        with gr.Row(equal_height=True):
+                            batch_link = gr.Textbox(show_label=False, container=False, scale=4,
+                                                    placeholder="Paste YouTube link(s), then Add or Enter")
+                            batch_add = gr.Button("➕ Add", variant="primary", scale=1, min_width=90)
+                        batch_upload = gr.UploadButton("🎬🎵 Add audio / video files (pick many at once)",
+                                                       file_types=["audio", "video"],
+                                                       file_count="multiple", type="filepath")
                     batch_lang = gr.Radio(["Auto", "Bangla", "English"], value="Auto",
                                           label="Language (Auto detects each one)")
                     with gr.Row():
-                        batch_btn = gr.Button("▶ Start batch", variant="primary", size="lg", scale=3)
+                        batch_btn = gr.Button("▶ Start", variant="primary", size="lg", scale=3)
                         batch_stop = gr.Button("■ Stop", size="lg", scale=1, elem_classes="stop-btn",
                                                interactive=False)
-                with gr.Column():
+                with gr.Column(scale=3):
+                    step("② Queue")
                     batch_bar = gr.HTML("", padding=False, visible=False)
-                    batch_table = gr.Dataframe(headers=["#", "Item", "Language", "Status"],
-                                               datatype=["number", "str", "str", "str"],
-                                               interactive=False, wrap=True)
+                    batch_table = gr.HTML(queue_html([]))
+                    with gr.Row(equal_height=True):
+                        batch_pick = gr.Dropdown([], multiselect=True, label="Remove from the queue",
+                                                 scale=4)
+                        batch_remove = gr.Button("🗑 Remove", scale=1, min_width=100)
+                        batch_clear = gr.Button("✕ Empty queue", scale=1, min_width=150)
 
         with gr.Tab("🕘 History", id="history"):
             gr.Markdown("Every transcription is kept here (in the `history` folder of the app), even "
@@ -1036,8 +1122,9 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
 
     # ---- events ---------------------------------------------------------------------------
     # Buttons switched together by busy_buttons()/idle_buttons(), then the page's busy state.
-    controls = [btn, stop, stop_top, fix_btn, clear, get_yt, get_yt_video, resume_btn, batch_btn,
-                batch_stop, fix_resume_btn, video_btn_burn, busy]
+    controls = [btn, stop, stop_top, fix_btn, clear, get_yt, get_yt_video, resume_btn, resume_top,
+                batch_btn, batch_stop, batch_add, batch_upload, batch_remove, batch_clear,
+                fix_resume_btn, video_btn_burn, busy]
     run_outputs = [transcript, txt_btn, srt_btn, srt_view, status, clip, pbar, partial, segs, entry]
     idle_inputs = [audio, transcript, partial, fix_partial]
 
@@ -1045,6 +1132,8 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
         run, [audio, title, model_name, quantize, use_lm, hotwords, start, end, digits], run_outputs,
         show_progress="hidden")  # our own progress bar above the transcript shows it
     resume_event = resume_btn.click(busy_buttons("transcribe"), None, controls).then(
+        resume, partial, run_outputs, show_progress="hidden")
+    resume_top_event = resume_top.click(busy_buttons("transcribe"), None, controls).then(
         resume, partial, run_outputs, show_progress="hidden")
     fix_inputs = [transcript, llm, language, segs, title, entry, fix_partial]
     fix_outputs = [corrected, fixed_txt_btn, fixed_srt_btn, fix_bar, fix_partial]
@@ -1056,9 +1145,15 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
         export_video, [export_which, transcript, corrected, segs, title, video_src],
         [export_bar, save_subtitled], show_progress="hidden")
     batch_event = batch_btn.click(busy_buttons("batch"), None, controls).then(
-        run_batch, [batch_files, batch_links, batch_lang, quantize, use_lm, digits, cookies_file,
-                    use_browser], [batch_table, batch_bar], show_progress="hidden")
-    running = [transcribe_event, resume_event, correct_event, fix_resume_event, export_event, batch_event]
+        run_batch, [batch_queue, batch_lang, quantize, use_lm, digits, cookies_file, use_browser],
+        [batch_queue, batch_table, batch_bar], show_progress="hidden")
+    for trigger in (batch_add.click, batch_link.submit):
+        trigger(add_links, [batch_link, batch_queue], [batch_link, batch_queue, batch_table, batch_pick])
+    batch_upload.upload(add_files, [batch_upload, batch_queue], [batch_queue, batch_table, batch_pick])
+    batch_remove.click(remove_items, [batch_pick, batch_queue], [batch_queue, batch_table, batch_pick])
+    batch_clear.click(clear_queue, None, [batch_queue, batch_table, batch_pick, batch_bar])
+    running = [transcribe_event, resume_event, resume_top_event, correct_event, fix_resume_event,
+               export_event, batch_event]
     for event in running:  # .then runs after errors too; Stop restores the buttons itself
         event.then(idle_buttons, idle_inputs, controls)
     stopping = bar_html("⏹ Stopping — finishing the current step…", done=True)
@@ -1072,7 +1167,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     clear.click(clear_results, None,
                 [start, end, transcript, txt_btn, srt_btn, srt_view, corrected, fixed_txt_btn,
                  fixed_srt_btn, status, clip, pbar, stop_top, claude_status, partial, resume_btn,
-                 segs, entry, fix_bar, fix_partial, fix_resume_btn], cancels=running)
+                 resume_top, segs, entry, fix_bar, fix_partial, fix_resume_btn], cancels=running)
 
     # Getting audio
     get_yt.click(get_youtube, [youtube_url, cookies_file, use_browser], [audio, title, status, video_src],
@@ -1088,7 +1183,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     audio.change(show_length, audio, end).then(selected_part, [audio, start, end], clip).then(
         detect_language, [audio, language], [language, status])
     audio.change(enable_if, [audio, busy], btn)
-    audio.change(audio_changed, [audio, partial], [partial, resume_btn])
+    audio.change(audio_changed, [audio, partial], [partial, resume_btn, resume_top])
     demo.load(enable_if, [audio, busy], btn)  # for audio that is already there when the page opens
     for trigger in (start.blur, start.submit, end.blur, end.submit):
         trigger(selected_part, [audio, start, end], clip)
@@ -1105,6 +1200,8 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     corrected.blur(lambda t, s, ti: edited_subtitles(t, s, ti, " (fixed).srt")[0],
                    [corrected, segs, title], fixed_srt_btn)
 
+    corrected.change(text_choices, corrected, [claude_text, export_which])
+
     # Export
     export_btn.click(export_files, [export_which, transcript, corrected, segs, title], export_out)
 
@@ -1115,7 +1212,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     history_open_btn.click(
         history_open, history_pick,
         [pages, audio, title, language, transcript, txt_btn, srt_btn, srt_view, corrected, status,
-         partial, segs, entry, resume_btn, video_src])
+         partial, segs, entry, resume_btn, resume_top, video_src])
     history_delete_btn.click(history_delete, history_pick, [history_pick, history_info])
 
     # Claude, LLM list, RAM
@@ -1128,7 +1225,18 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
         None, alert, None, js="(signal) => { if (signal) window.sttBeep && window.sttBeep(); }")
 
 
+class _HideCancelRace(logging.Filter):
+    """Gradio 6.30 may get two cancel requests for one event and fail the second with a
+    KeyError in cancel_event (the event is already cancelled). Harmless; don't print it."""
+
+    def filter(self, record):
+        exc = record.exc_info and record.exc_info[1]
+        return not (isinstance(exc, KeyError) and "cancel_event" in "".join(
+            traceback.format_tb(record.exc_info[2])))
+
+
 if __name__ == "__main__":
+    logging.getLogger("uvicorn.error").addFilter(_HideCancelRace())
     history.HISTORY_DIR.mkdir(exist_ok=True)
     # No footer links: the API docs, settings and run history are developer tools; History
     # above keeps the results. allowed_paths: History audio is played and downloaded from there.
