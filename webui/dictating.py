@@ -12,12 +12,20 @@ from stt import history
 from stt.audio import cut_clip, SAMPLE_RATE
 from stt.dictation import Dictation
 from stt.export import bangla_digits
-from stt.transcribe import Segment, Word
+from stt.transcribe import DEFAULT_MODEL, Segment, Word, WHISPER_MODELS
 from stt.worker import WORKER
 from webui.common import check_ram, file_button, language_of, no_file, out_file, runtime, WORK_DIR
 from webui.transcribing import make_job
 
 SESSIONS: dict[str, dict] = {}  # browser session -> {"dictation", "job", "before"}
+READY = "✅ Ready — press Record and speak."
+
+
+def _live_model(model_name: str) -> str:
+    """Bangla is dictated with MMS: the Bangla Whisper is slower than speech on a CPU."""
+    if model_name in WHISPER_MODELS and language_of(model_name) == "Bangla":
+        return DEFAULT_MODEL
+    return model_name
 
 
 def _transcriber(job: dict):
@@ -52,8 +60,24 @@ def _shown(session: dict) -> str:
     return text + (" …" if d.pending else "")
 
 
+def live_ready(model_name, quantize, use_lm):
+    """The Live tab was opened: load the model now, so it is ready before the user speaks."""
+    model_name = _live_model(model_name)
+    if runtime.active:  # a transcription is running; Record loads the model when it is free
+        yield ""
+        return
+    if not WORKER.is_loaded(model_name, quantize):
+        yield "⏳ Loading the model (about a minute)… you can press Record already."
+        job = make_job("live", "", model_name, quantize, use_lm, "", "", "", False, use_learned=False)
+        check_ram(job["model"], job["quantize"], job["use_lm"])
+        _transcriber(job)(np.zeros(SAMPLE_RATE // 2, np.float32), 0.0)
+        runtime.last_used = time.monotonic()
+    yield READY
+
+
 def live_start(text, model_name, quantize, use_lm, hotwords, digits, use_learned, request: gr.Request):
     """Recording started: get the model ready while the user starts speaking."""
+    model_name = _live_model(model_name)
     if runtime.active:
         raise gr.Error("Wait for the transcription to finish (or press Stop) first.")
     job = make_job("live", "", model_name, quantize, use_lm, hotwords, "", "", digits,
@@ -71,8 +95,9 @@ def live_start(text, model_name, quantize, use_lm, hotwords, digits, use_learned
 
 def _listening(job: dict) -> str:
     loading = not WORKER.is_loaded(job["model"], job["quantize"])
-    return ("🔴 Listening — the text appears after each pause."
-            + (" Loading the model first (about half a minute)…" if loading else ""))
+    if loading:
+        return "🔴 Listening — ⏳ the model is still loading (about a minute); the text catches up."
+    return "🔴 Listening — the text appears after each pause."
 
 
 def live_chunk(chunk, request: gr.Request):
