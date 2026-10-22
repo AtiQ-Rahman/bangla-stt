@@ -36,6 +36,10 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
 3. **Use the text**:
    - *AI-fixed (local)*: punctuation and spelling with a free local model (below); it can be
      stopped and resumed too, and gives fixed .txt and .srt.
+   - *📑 Chapters*: for long recordings, a "00:00 Title" chapter list (paste it into a YouTube
+     description) and a short summary of each part, by the local AI; the transcript is cut at
+     pauses into about 8 parts. *Or ask Claude* makes a prompt with the timed transcript for
+     better chapters. Kept in History.
    - *Export*: `.vtt` subtitles, a Word `.docx`, the **video with subtitles burned in** (for
      audio that came from a video), and **subtitles in the other language** (Bangla ↔ English,
      with the local AI): a translated `.srt` and a two-language one, timed like the originals.

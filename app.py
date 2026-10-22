@@ -16,6 +16,7 @@ import gradio as gr
 from stt import history
 from stt.transcribe import DEFAULT_MODEL, LANGUAGE_MODELS
 from webui.batch import add_files, add_links, clear_queue, remove_items, run_batch
+from webui.chaptering import claude_prompt, make_chapters, saved_chapters
 from webui.claude import claude_sent, CLAUDE_TASKS, SEND_TO_CLAUDE_JS
 from webui.common import bar_html, BROWSER, idle_unloader, ram_status, ram_tick
 from webui.controls import (busy_buttons, clear_results, enable_if, idle_buttons, pick_language,
@@ -173,6 +174,25 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                                 fixed_txt_btn = gr.DownloadButton("⬇ Fixed text (.txt)", interactive=False)
                                 fixed_srt_btn = gr.DownloadButton("⬇ Fixed subtitles (.srt)",
                                                                   interactive=False)
+                        with gr.Tab("📑 Chapters") as chapters_tab:
+                            gr.Markdown("A chapter list with times — ready for a YouTube description "
+                                        "— and a short summary of each part. Made by the local AI "
+                                        "(the Ollama model in *AI-fixed*); best for long recordings. "
+                                        "Check names: the small local AI can get them wrong.",
+                                        elem_classes="hint")
+                            chapters_btn = gr.Button("📑 Make chapters", variant="primary",
+                                                     interactive=False)  # until there is a transcript
+                            chapters_bar = gr.HTML("", padding=False, visible=False)
+                            chapters_out = gr.Textbox(
+                                show_label=False, lines=12, max_lines=12, interactive=True,
+                                buttons=["copy"], elem_classes="transcript",
+                                placeholder="00:00 Introduction\n03:40 …")
+                            chapters_file = gr.DownloadButton("⬇ Chapters (.txt)", interactive=False)
+                            with gr.Accordion("Or ask Claude (better chapters, needs internet)", open=False):
+                                claude_chapters_btn = gr.Button("📋 Make a prompt for Claude", size="sm")
+                                claude_chapters = gr.Textbox(
+                                    show_label=False, lines=4, max_lines=4, buttons=["copy"], visible=False,
+                                    info="Copy it (button at the top right) and paste it at claude.ai/new")
                         with gr.Tab("⬇ Export"):
                             export_which = gr.Radio(["Transcript"], value="Transcript",
                                                     label="Export which text")
@@ -267,7 +287,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     # Buttons switched together by busy_buttons()/idle_buttons(), then the page's busy state.
     controls = [btn, stop, stop_top, fix_btn, clear, get_yt, get_yt_video, resume_btn, resume_top,
                 batch_btn, batch_stop, batch_add, batch_upload, batch_remove, batch_clear,
-                fix_resume_btn, video_btn_burn, translate_btn, busy]
+                fix_resume_btn, video_btn_burn, translate_btn, chapters_btn, busy]
     run_outputs = [transcript, txt_btn, srt_btn, srt_view, status, clip, pbar, partial, segs, entry]
     idle_inputs = [audio, transcript, partial, fix_partial]
 
@@ -292,6 +312,11 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     export_event = video_btn_burn.click(busy_buttons("export"), None, controls).then(
         export_video, [export_which, transcript, corrected, segs, title, video_src],
         [export_bar, save_subtitled], show_progress="hidden")
+    chapters_event = chapters_btn.click(busy_buttons("chapters"), None, controls).then(
+        make_chapters, [transcript, segs, llm, language, title, entry],
+        [chapters_out, chapters_file, chapters_bar], show_progress="hidden")
+    chapters_tab.select(saved_chapters, entry, chapters_out)
+    claude_chapters_btn.click(claude_prompt, [transcript, segs, language], claude_chapters)
     batch_event = batch_btn.click(busy_buttons("batch"), None, controls).then(
         run_batch, [batch_queue, batch_lang, quantize, use_lm, digits, speakers, use_learned,
                     cookies_file, use_browser],
@@ -308,7 +333,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     watch_start.change(None, None, None, js="() => { const b = document.querySelector('#batch-start'); "
                                             "if (b && !b.disabled) b.click(); }")
     running = [transcribe_event, resume_event, resume_top_event, correct_event, fix_resume_event,
-               export_event, translate_event, batch_event]
+               export_event, translate_event, batch_event, chapters_event]
     # When long work ends well (not stopped, no error): chime, and notify if the page is hidden.
     # Starting it is a click, the moment a browser allows asking for notification permission.
     finished = [(transcribe_event, status, "Transcription finished"),
@@ -316,9 +341,10 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                 (resume_top_event, status, "Transcription finished"),
                 (correct_event, fix_bar, "AI fix finished"), (fix_resume_event, fix_bar, "AI fix finished"),
                 (export_event, export_bar, "Video with subtitles ready"), (batch_event, batch_bar, "Batch finished"),
-                (translate_event, translate_bar, "Translated subtitles ready")]
+                (translate_event, translate_bar, "Translated subtitles ready"),
+                (chapters_event, chapters_bar, "Chapters ready")]
     for start_button in (btn, resume_btn, resume_top, fix_btn, fix_resume_btn, video_btn_burn,
-                         translate_btn, batch_btn):
+                         translate_btn, batch_btn, chapters_btn):
         start_button.click(None, js="() => window.sttAskNotify && window.sttAskNotify()")
     # Read along: render when its tab is opened, and after a run or an open brings a new result.
     readalong_inputs = [transcript, segs, entry]
@@ -345,7 +371,8 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     clear.click(clear_results, None,
                 [start, end, transcript, txt_btn, srt_btn, srt_view, corrected, fixed_txt_btn,
                  fixed_srt_btn, status, clip, pbar, stop_top, claude_status, partial, resume_btn,
-                 resume_top, segs, entry, fix_bar, fix_partial, fix_resume_btn], cancels=running)
+                 resume_top, segs, entry, fix_bar, fix_partial, fix_resume_btn, chapters_out],
+                cancels=running)
 
     # Getting audio
     got_audio = [audio, title, status, video_src, source]
@@ -374,6 +401,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
 
     # Edits: the downloads follow the text boxes
     transcript.change(enable_if, [transcript, busy], fix_btn)
+    transcript.change(enable_if, [transcript, busy], chapters_btn)
     transcript.input(lambda t, ti, en: edited_text(t, ti, en, "transcript.txt"),
                      [transcript, title, entry], txt_btn, trigger_mode="always_last")
     transcript.blur(lambda t, s, ti: edited_subtitles(t, s, ti, ".srt"), [transcript, segs, title],

@@ -9,10 +9,12 @@ features; this file is about the code and the lessons learned building it.
   (YouTube/files/trim/language), `transcribing` (`_work` core loop, run/resume, edit sync),
   `fixing` (Ollama fix), `exporting` (vtt/docx/burned video/translation), `batch`, `opening`
   (History, dashboard open, live follow via `OPEN_FIELDS`/`opened()`), `controls` (button states),
-  `readalong` + `look` (Read along HTML + page JS/CSS), `settings` (saved defaults), `claude`, `phone`.
+  `readalong` + `look` (Read along HTML + page JS/CSS), `settings` (saved defaults), `claude`, `phone`,
+  `chaptering` (Chapters tab), `watch` (Batch folder watch).
 - `stt/` — no UI: `transcribe` (MMS/XLS-R CTC windows + Whisper, NFC output), `worker` (models run
   in a spawned process), `audio` (ffmpeg, yt-dlp, browser cookies), `history`, `retime`, `correct`
-  (guarded LLM fix), `translate`, `speakers` (sherpa-onnx diarization), `export`, `langid`.
+  (guarded LLM fix), `translate`, `speakers` (sherpa-onnx diarization), `export`, `langid`,
+  `dictionary` (words learned from edits → hotwords), `chapters` (parts at pauses + LLM titles).
 
 ## Commands
 - Run: `./run.sh` (port 7860). Tests: `.venv/bin/python -m pytest -q tests` (~16 s);
@@ -26,6 +28,8 @@ features; this file is about the code and the lessons learned building it.
   update `busy_buttons`/`idle_buttons`/`clear_results`/`OPEN_FIELDS` together with the layout.
 - Bangla vowel signs (ী, া …) are not `\w` in Python regex: never strip "punctuation" with `\W`;
   use `unicodedata.category`. Whisper chunk words may lack the leading space: join with `_join`.
+- gemma3:4b answers in Bangla with translated labels ("শিরোনাম:" for "TITLE:") and invents
+  names when not told to stick to the text: parse loosely, forbid outside facts in prompts.
 - Values computed in browser JS cannot reach the server through `gr.State`; use a hidden
   component (`gr.Checkbox`/`gr.Textbox` with `visible=False` or a `.ra-hidden` class).
 - Gradio cancel of a generator only lands when the current `next()` returns, so Stop goes through
