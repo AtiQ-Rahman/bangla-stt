@@ -37,6 +37,7 @@ atexit.register(shutil.rmtree, WORK_DIR, ignore_errors=True)
 IDLE_UNLOAD_SEC = 10 * 60  # free the models' RAM after this long without use
 LLM_RAM_GB = 4.0
 BROWSER = browser_profile()  # whose YouTube login to use when YouTube asks "are you a bot?"
+VIDEO_EXT = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".flv", ".wmv", ".3gp"}
 
 # {lang} / {other} are filled in by the browser from the chosen language.
 CLAUDE_TASKS = {
@@ -287,9 +288,10 @@ def selected_part(audio, start, end):
     return gr.Audio(value=str(clip), visible=True, label=label)
 
 
-def detect_language(path, current):
-    """Set the Language choice to what the loaded audio sounds like."""
-    if not path:
+def detect_language(path, current, text):
+    """Set the Language choice to what the loaded audio sounds like. When a finished result was
+    just opened (there is text), its own message stays and the language is already right."""
+    if not path or (text or "").strip():
         return gr.skip(), gr.skip()
     try:
         language, confidence = detect(path)
@@ -381,10 +383,12 @@ def make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, d
             "bn_digits": bool(digits)}
 
 
-def run(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits):
+def run(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, video):
     if not audio:
         raise gr.Error("Add some audio first: get it from YouTube, upload a video or audio file, or record.")
     job = make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits)
+    if video:
+        job["video"] = video  # so "video with subtitles" also works when reopened from History
     check_ram(job["model"], job["quantize"], job["use_lm"])
 
     # Clear the previous result straight away.
@@ -576,28 +580,16 @@ def export_video(which, transcript_text, fixed_text, segs, title, video_src):
 _queue_ids = iter(range(1, 10**9))
 
 
-def queue_html(queue: list[dict]) -> str:
-    """The batch queue as a table; links open in a new tab."""
-    if not queue:
-        return ('<div class="queue-empty">The queue is empty. Add YouTube links or audio/video files '
-                'on the left.</div>')
-    rows = []
-    for n, item in enumerate(queue, 1):
-        name = html.escape(item["name"])
-        if item["kind"] == "link":
-            name = (f'<a href="{html.escape(item["src"], quote=True)}" target="_blank" '
-                    f'rel="noopener">{name} ↗</a>')
-        rows.append(f"<tr><td>{n}</td><td>{'🔗' if item['kind'] == 'link' else '🎞️'} {name}</td>"
-                    f"<td>{html.escape(item.get('language', ''))}</td>"
-                    f"<td>{html.escape(item['status'])}</td></tr>")
-    return ('<table class="queue"><thead><tr><th>#</th><th>Item</th><th>Language</th><th>Status</th>'
-            f'</tr></thead><tbody>{"".join(rows)}</tbody></table>')
+def queue_rows(queue: list[dict]) -> list[list]:
+    """The batch queue as table rows; the last column says a row can be opened."""
+    return [[n, f"{'🔗' if item['kind'] == 'link' else '🎞️'} {item['name']}", item.get("language", ""),
+             item["status"], "📂 Open"] for n, item in enumerate(queue, 1)]
 
 
 def queue_views(queue):
     """The table, plus the item picker for Remove (only items not yet done make sense there)."""
     choices = [(f"{n}. {item['name'][:60]}", item["id"]) for n, item in enumerate(queue, 1)]
-    return queue_html(queue), gr.Dropdown(choices=choices, value=[])
+    return queue_rows(queue), gr.Dropdown(choices=choices, value=[])
 
 
 def add_links(text, queue):
@@ -637,7 +629,7 @@ def run_batch(queue, lang_choice, quantize, use_lm, digits, cookies_file, use_br
         def show(status, frac=0.0):
             item["status"] = status
             overall = (i + frac) / len(todo)
-            return (queue, queue_html(queue),
+            return (queue, queue_rows(queue),
                     bar(f"⏳ Item {i + 1} of {len(todo)}{time_left(first, overall)}", overall))
 
         shutil.rmtree(work, ignore_errors=True)
@@ -655,8 +647,11 @@ def run_batch(queue, lang_choice, quantize, use_lm, digits, cookies_file, use_br
             item["language"] = language
             model = LANGUAGE_MODELS[language][0]
             job = make_job(str(audio), title, model, quantize, use_lm, "", "", "", digits)
+            if item["kind"] == "file" and Path(item["src"]).suffix.lower() in VIDEO_EXT:
+                job["video"] = item["src"]
             check_ram(model, quantize, job["use_lm"])
             entry = history.create(job)
+            item["entry"] = str(entry)
             yield show("loading the model…")
             for _, frac, _, _, _ in _work(job, entry, [], 0.0):
                 first = first or (time.monotonic(), (i + frac) / len(todo))
@@ -664,10 +659,10 @@ def run_batch(queue, lang_choice, quantize, use_lm, digits, cookies_file, use_br
             item["status"] = "✅ done"
         except Exception as e:  # one bad item shouldn't stop the rest
             item["status"] = f"❌ {e}"[:120]
-        yield queue, queue_html(queue), bar(f"⏳ Item {i + 1} of {len(todo)}", (i + 1) / len(todo))
+        yield queue, queue_rows(queue), bar(f"⏳ Item {i + 1} of {len(todo)}", (i + 1) / len(todo))
     shutil.rmtree(work, ignore_errors=True)
     ok = sum(item["status"] == "✅ done" for item in todo)
-    yield (queue, queue_html(queue),
+    yield (queue, queue_rows(queue),
            bar(f"✅ Finished: {ok} of {len(todo)} done · open them in 🕘 History", 1, done=True))
 
 
@@ -690,8 +685,9 @@ def history_preview(folder):
             f"> {text[:400]}{'…' if len(text) > 400 else ''}")
 
 
-def history_open(folder):
-    """Load a saved run into the Transcribe tab; an unfinished one can be Resumed."""
+def history_open(folder, still_running=False):
+    """Load a saved run into the Transcribe tab; an unfinished one can be Resumed (unless the
+    batch is still transcribing it). Returns the OPEN_OUTPUTS values."""
     if not folder:
         raise gr.Error("Pick an entry first.")
     entry = Path(folder)
@@ -707,13 +703,34 @@ def history_open(folder):
     srt = to_srt(retime(text, segs)) if segs else ""
     srt_path.write_text(srt, encoding="utf-8")
     partial = None
-    note = "Loaded from History."
-    if meta["status"] != "done":
+    note = f"📂 Opened “{job['title']}”."
+    if still_running:
+        note = (f"📂 “{job['title']}” is still being transcribed by the batch — this is the text so "
+                "far. Open it again when it's done for the full result.")
+    elif meta["status"] != "done":
         partial = {"job": job, "entry": str(entry), "segments": segs, "at": meta["at"]}
-        note = f"Loaded from History — stopped at {fmt_dur(meta['at'])}: press ⏯ Resume to continue."
+        note = f"📂 Opened “{job['title']}” — stopped at {fmt_dur(meta['at'])}: press ⏯ Resume to continue."
     return (gr.Tabs(selected="main"), job["audio"], job["title"], language_of(job["model"]), text,
             file_button(txt), file_button(srt_path), srt, fixed, note, partial, segs, str(entry),
-            gr.Button(visible=bool(partial)), gr.Button(visible=bool(partial)), None)
+            gr.Button(visible=bool(partial)), gr.Button(visible=bool(partial)), job.get("video"),
+            gr.skip())
+
+
+def open_queue_item(queue, busy, evt: gr.SelectData):
+    """A click on a Batch queue row: open that item in the Transcribe dashboard."""
+    item = queue[evt.index[0]]
+    if item.get("entry") and Path(item["entry"], "meta.json").exists():
+        running = busy == "batch" and not item["status"].startswith(("✅", "❌"))
+        return history_open(item["entry"], still_running=running)
+    skip = gr.skip()
+    if item["kind"] == "link":  # not transcribed yet: ready to fetch and run on its own
+        note = (f"🔗 Not transcribed yet — the link is in the YouTube box: press **Audio only** "
+                "(or **Video + audio**), then Transcribe.")
+        return (gr.Tabs(selected="main"),) + (skip,) * 8 + (note,) + (skip,) * 6 + (item["src"],)
+    audio, title, note, video = get_file_audio(item["src"], Path(item["src"]).suffix.lower() in VIDEO_EXT)
+    return ((gr.Tabs(selected="main"), audio, title) + (skip,) * 6
+            + ("🎞️ Not transcribed yet — the file is loaded: press Transcribe.",)
+            + (skip,) * 5 + (video, skip))
 
 
 def history_delete(folder):
@@ -927,14 +944,10 @@ CSS = """
             background: var(--block-background-fill); border: 1px solid var(--border-color-primary); }
 #status p:empty { display: none; }
 #alert { display: none; }
-table.queue { width: 100%; border-collapse: collapse; font-size: 0.95rem; border: none !important; }
-table.queue th, table.queue td { text-align: left; padding: 8px 10px; border: none !important;
-                                 border-bottom: 1px solid var(--border-color-primary) !important; }
-table.queue th { color: var(--body-text-color-subdued); font-weight: 600; }
-table.queue td:first-child, table.queue th:first-child { width: 2.5em; }
-table.queue a { color: var(--color-accent); }
-.queue-empty { padding: 24px; text-align: center; color: var(--body-text-color-subdued);
-               border: 1px dashed var(--border-color-primary); border-radius: 12px; }
+#batch-table tbody tr { cursor: pointer; }
+#batch-table, #batch-table * { font-family: var(--font) !important; }
+#batch-table tbody tr:hover td { background: var(--color-accent-soft); }
+.hint p { margin: 0; color: var(--body-text-color-subdued); }
 """
 
 
@@ -1102,7 +1115,12 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                 with gr.Column(scale=3):
                     step("② Queue")
                     batch_bar = gr.HTML("", padding=False, visible=False)
-                    batch_table = gr.HTML(queue_html([]))
+                    gr.Markdown("Click a row to open it in the 🎙️ Transcribe dashboard — transcript, "
+                                "subtitles, AI fix, export, Claude, Resume.", elem_classes="hint")
+                    batch_table = gr.Dataframe(
+                        headers=["#", "Item", "Language", "Status", ""], value=[],
+                        datatype=["number", "str", "str", "str", "str"], interactive=False, wrap=True,
+                        column_widths=["48px", "45%", "90px", "25%", "90px"], elem_id="batch-table")
                     with gr.Row(equal_height=True):
                         batch_pick = gr.Dropdown([], multiselect=True, label="Remove from the queue",
                                                  scale=4)
@@ -1129,7 +1147,8 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     idle_inputs = [audio, transcript, partial, fix_partial]
 
     transcribe_event = btn.click(busy_buttons("transcribe"), None, controls).then(
-        run, [audio, title, model_name, quantize, use_lm, hotwords, start, end, digits], run_outputs,
+        run, [audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, video_src],
+        run_outputs,
         show_progress="hidden")  # our own progress bar above the transcript shows it
     resume_event = resume_btn.click(busy_buttons("transcribe"), None, controls).then(
         resume, partial, run_outputs, show_progress="hidden")
@@ -1181,7 +1200,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     audio.stop_recording(lambda: ("recording", None), None, [title, video_src])
     # New or trimmed audio: length hint, From..To preview, language, buttons, stale Resume.
     audio.change(show_length, audio, end).then(selected_part, [audio, start, end], clip).then(
-        detect_language, [audio, language], [language, status])
+        detect_language, [audio, language, transcript], [language, status])
     audio.change(enable_if, [audio, busy], btn)
     audio.change(audio_changed, [audio, partial], [partial, resume_btn, resume_top])
     demo.load(enable_if, [audio, busy], btn)  # for audio that is already there when the page opens
@@ -1209,10 +1228,10 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     history_refresh.click(history_choices, None, history_pick)
     pages.select(history_choices, None, history_pick)  # fresh list whenever a page is opened
     history_pick.change(history_preview, history_pick, history_info)
-    history_open_btn.click(
-        history_open, history_pick,
-        [pages, audio, title, language, transcript, txt_btn, srt_btn, srt_view, corrected, status,
-         partial, segs, entry, resume_btn, resume_top, video_src])
+    open_outputs = [pages, audio, title, language, transcript, txt_btn, srt_btn, srt_view, corrected,
+                    status, partial, segs, entry, resume_btn, resume_top, video_src, youtube_url]
+    history_open_btn.click(history_open, history_pick, open_outputs)
+    batch_table.select(open_queue_item, [batch_queue, busy], open_outputs)
     history_delete_btn.click(history_delete, history_pick, [history_pick, history_info])
 
     # Claude, LLM list, RAM

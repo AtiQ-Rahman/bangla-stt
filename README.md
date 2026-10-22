@@ -49,7 +49,9 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
 - **📚 Batch**: build a queue — paste YouTube links (one or many) and press *Add*, or pick
   many audio/video files at once — then *Start*. Items run one after another, the language of
   each is detected, and each lands in History. Pressing *Start* again later only runs the
-  items that aren't done yet; remove items or empty the queue below it.
+  items that aren't done yet; remove items or empty the queue below it. **Click a row** to open
+  that item in the Transcribe dashboard with everything there (subtitles, AI fix, export,
+  Claude, Resume); a not-yet-done link or file is loaded there ready to run on its own.
 - **🕘 History**: every transcription (audio, text, subtitles, AI-fixed text, progress) is kept
   in the `history` folder. Open one to read, download or **Resume** it — even after the app or
   the PC was restarted. Delete entries you no longer need (the audio copies take space).
