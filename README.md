@@ -71,6 +71,10 @@ are stored in `~/.config/bangla-stt/settings.json` (learned words in `dictionary
   that item in the Transcribe dashboard with everything there (subtitles, AI fix, export,
   Claude, Resume); one still being transcribed is followed live there, and a not-yet-done link
   or file is loaded ready to run on its own. Opened items show a link back to their YouTube source.
+- **📂 Watch a folder** (in Batch): pick a folder (default `~/bangla-stt-inbox`) and tick *Watch
+  it*. Audio and video files put there — e.g. copied from a phone or a recorder — are queued and
+  transcribed into History automatically while the page is open; each file once (again if it is
+  replaced). Files being copied are waited for until they stop changing.
 - **🕘 History**: every transcription (audio, text, subtitles, AI-fixed text, progress) is kept
   in the `history` folder. Open one to read, download or **Resume** it — even after the app or
   the PC was restarted. **Search** finds words in all saved transcripts. Delete entries you

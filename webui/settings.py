@@ -13,7 +13,8 @@ FILE = Path(os.environ.get("STT_CONFIG_DIR", Path.home() / ".config" / "bangla-s
 BUILT_IN = {"language": "Bangla", "bangla_model": LANGUAGE_MODELS["Bangla"][0],
             "english_model": LANGUAGE_MODELS["English"][0], "quantize": True, "use_lm": True,
             "digits": False, "speakers": False, "use_learned": True, "use_browser": True,
-            "claude_task": "Fix spelling & punctuation", "llm": DEFAULT_LLM, "batch_lang": "Auto"}
+            "claude_task": "Fix spelling & punctuation", "llm": DEFAULT_LLM, "batch_lang": "Auto",
+            "watch_folder": str(Path.home() / "bangla-stt-inbox")}
 
 
 def load() -> dict:
@@ -49,6 +50,14 @@ def apply_defaults():
     models = LANGUAGE_MODELS[v["language"]]
     return (v["language"], gr.Radio(choices=models, value=model_for(v["language"])), v["quantize"],
             v["use_lm"], v["digits"], v["speakers"], v["use_learned"], v["use_browser"], v["claude_task"], v["batch_lang"])
+
+
+def remember(key: str, value):
+    """Keep one setting (e.g. the watched folder) without touching the others."""
+    values = load()
+    values[key] = value
+    FILE.parent.mkdir(parents=True, exist_ok=True)
+    FILE.write_text(json.dumps(values, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def reset_defaults():

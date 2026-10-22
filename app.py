@@ -27,7 +27,9 @@ from webui.opening import (follow_tick, history_choices, history_delete, history
                            history_preview, history_search, open_queue_item, stop_following)
 from webui.phone import USER as PHONE_USER, certificate, lan_ip, new_password
 from webui.readalong import EMPTY as READALONG_EMPTY, readalong, save_readalong
-from webui.settings import apply_defaults, default_llm, reset_defaults, save_defaults
+from webui import watch
+from webui.settings import (apply_defaults, default_llm, load as load_settings, reset_defaults,
+                            save_defaults)
 from webui.sources import (audio_changed, detect_language, get_audio_file, get_video_file,
                            get_youtube, get_youtube_video, selected_part, show_length)
 from webui.transcribing import (edited_subtitles, edited_text, learn_edits, learned_words, resume, run,
@@ -220,8 +222,16 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                                                        file_count="multiple", type="filepath")
                     batch_lang = gr.Radio(["Auto", "Bangla", "English"], value="Auto",
                                           label="Language (Auto detects each one)")
+                    with gr.Accordion("📂 Watch a folder", open=False):
+                        watch_folder = gr.Textbox(label="Folder", info="Audio and video files put here "
+                                                  "are transcribed automatically (not its subfolders).")
+                        watch_on = gr.Checkbox(False, label="Watch it (while this page is open)")
+                        watch_msg = gr.Markdown("Not watching.", elem_classes="hint")
+                        watch_timer = gr.Timer(10, active=False)
+                        watch_start = gr.Textbox(visible=False)  # a new value presses ▶ Start
                     with gr.Row():
-                        batch_btn = gr.Button("▶ Start", variant="primary", size="lg", scale=3)
+                        batch_btn = gr.Button("▶ Start", variant="primary", size="lg", scale=3,
+                                              elem_id="batch-start")
                         batch_stop = gr.Button("■ Stop", size="lg", scale=1, elem_classes="stop-btn",
                                                interactive=False)
                 with gr.Column(scale=3):
@@ -291,6 +301,12 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     batch_upload.upload(add_files, [batch_upload, batch_queue], [batch_queue, batch_table, batch_pick])
     batch_remove.click(remove_items, [batch_pick, batch_queue], [batch_queue, batch_table, batch_pick])
     batch_clear.click(clear_queue, None, [batch_queue, batch_table, batch_pick, batch_bar])
+    demo.load(lambda: load_settings()["watch_folder"], None, watch_folder)
+    watch_on.change(watch.toggle, [watch_on, watch_folder], [watch_timer, watch_msg, watch_on])
+    watch_timer.tick(watch.tick, [watch_on, watch_folder, batch_queue, busy],
+                     [batch_queue, batch_table, batch_pick, watch_start], show_progress="hidden")
+    watch_start.change(None, None, None, js="() => { const b = document.querySelector('#batch-start'); "
+                                            "if (b && !b.disabled) b.click(); }")
     running = [transcribe_event, resume_event, resume_top_event, correct_event, fix_resume_event,
                export_event, translate_event, batch_event]
     # When long work ends well (not stopped, no error): chime, and notify if the page is hidden.

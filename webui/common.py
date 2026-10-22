@@ -39,6 +39,7 @@ BROWSER = browser_profile()  # whose YouTube login to use when YouTube asks "are
 
 
 VIDEO_EXT = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".flv", ".wmv", ".3gp"}
+AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".wma", ".amr"}
 
 
 # Shared run-time state: transcriptions in progress (the idle unloader leaves the models
