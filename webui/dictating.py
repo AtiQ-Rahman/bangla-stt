@@ -74,23 +74,26 @@ def live_selected(model_name, quantize):
 
 def live_ready(model_name, quantize, use_lm):
     """Load the selected model (▶ Load model, or the Live tab opened); Record is off until it
-    is ready, so the text appears as the user speaks. Returns (status, mic)."""
+    is ready, so the text appears as the user speaks. The language and model can't be changed
+    while it loads (the status would name the wrong one). Returns (status, mic, language, model)."""
+    free = gr.Radio(interactive=True), gr.Radio(interactive=True)
     if runtime.active:  # a recording is being finished, or a transcription runs
         yield ("⏳ Busy: the last recording is still being written (or a transcription runs) — "
-               f"press ▶ Load model again in a moment. {_in_memory()}"), _mic(False)
+               f"press ▶ Load model again in a moment. {_in_memory()}"), _mic(False), *free
         return
     if not WORKER.is_loaded(model_name, quantize):
         yield (f"⏳ Loading **{model_name}** (about a minute; the first time it may download)… "
-               "Record turns on when it is ready."), _mic(False)
+               "Record turns on when it is ready."), _mic(False), gr.Radio(interactive=False), \
+            gr.Radio(interactive=False)
         try:
             job = make_job("live", "", model_name, quantize, use_lm, "", "", "", False, use_learned=False)
             check_ram(job["model"], job["quantize"], job["use_lm"])
             _transcriber(job)(np.zeros(SAMPLE_RATE // 2, np.float32), 0.0)
         except Exception as e:
-            yield f"⚠️ **{model_name}** could not be loaded: {e}", _mic(False)
+            yield f"⚠️ **{model_name}** could not be loaded: {e}", _mic(False), *free
             return
         runtime.last_used = time.monotonic()
-    yield live_selected(model_name, quantize)
+    yield *live_selected(model_name, quantize), *free
 
 
 def live_start(text, model_name, quantize, use_lm, hotwords, digits, use_learned, request: gr.Request):
@@ -111,10 +114,10 @@ def live_start(text, model_name, quantize, use_lm, hotwords, digits, use_learned
 
 
 def _listening(job: dict) -> str:
-    loading = not WORKER.is_loaded(job["model"], job["quantize"])
-    if loading:
-        return "🔴 Listening… the model is still loading, the text will catch up."
-    return "🔴 Listening… the text appears a moment after each pause."
+    model = job["model"].split(" - ")[0]
+    if not WORKER.is_loaded(job["model"], job["quantize"]):
+        return f"🔴 Recording with **{model}** — it is still loading (about a minute), the text will catch up."
+    return f"🔴 Recording with **{model}** — the text appears a moment after each pause."
 
 
 def live_chunk(chunk, request: gr.Request):

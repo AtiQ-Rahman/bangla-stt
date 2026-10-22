@@ -237,10 +237,10 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                 live_language = gr.Radio(["Bangla", "English"], value="Bangla", scale=1,
                                          label="1. Language you will speak")
                 live_model = gr.Radio(LIVE_MODELS["Bangla"], value=DEFAULT_MODEL, scale=3,
-                                      label="2. Model (the first one is the fastest)")
+                                      label="2. Model — MMS: most accurate · XLS-R: fastest · Whisper: best for names, slow (pause for it)")
             with gr.Row():
                 live_load = gr.Button("▶ Load model", variant="primary", scale=0, min_width=160)
-                live_save = gr.Button("💾 Save as my default", scale=0, min_width=160)
+                live_save = gr.Button("💾 Use these every time for Live", scale=0, min_width=220)
             live_status = gr.Markdown("")  # the model: loading / ready
             with gr.Row():
                 with gr.Column(scale=2):
@@ -372,11 +372,11 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     demo.load(lambda: load_settings()["watch_folder"], None, watch_folder)
     # Live dictation
     demo.load(apply_live_defaults, None, [live_language, live_model])
-    live_tab.select(live_ready, [live_model, quantize, use_lm], [live_status, mic], show_progress="hidden")
-    live_language.input(live_models, live_language, live_model).then(
-        live_selected, [live_model, quantize], [live_status, mic])
-    live_model.input(live_selected, [live_model, quantize], [live_status, mic])
-    live_load.click(live_ready, [live_model, quantize, use_lm], [live_status, mic], show_progress="hidden")
+    live_loading = [live_status, mic, live_language, live_model]
+    live_tab.select(live_ready, [live_model, quantize, use_lm], live_loading, show_progress="hidden")
+    live_language.input(live_models, live_language, live_model)
+    live_model.change(live_selected, [live_model, quantize], [live_status, mic])  # also when set by code
+    live_load.click(live_ready, [live_model, quantize, use_lm], live_loading, show_progress="hidden")
     live_save.click(save_live_defaults, [live_language, live_model], None)
     mic.start_recording(live_start, [live_text, live_model, quantize, use_lm, hotwords, digits, use_learned],
                         live_rec, show_progress="hidden")
