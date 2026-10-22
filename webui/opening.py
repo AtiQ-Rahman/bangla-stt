@@ -163,3 +163,24 @@ def history_delete(folder):
     if folder:
         history.delete(Path(folder))
     return history_choices(), ""
+
+
+def history_ticks(query="", tick_all=False):
+    """The list to tick for deleting several (narrowed by the search), all ticked or none."""
+    found = history.entries(query or "")
+    return gr.CheckboxGroup(choices=found, value=[folder for _, folder in found] if tick_all else [])
+
+
+def history_bulk_ask(ticked):
+    """First press of Delete selected: say what will go and show the Yes button."""
+    if not ticked:
+        return "Tick at least one transcription first.", gr.Button(visible=False)
+    return (f"⚠️ Delete **{len(ticked)}** transcription(s) with their audio? This cannot be undone.",
+            gr.Button(f"🗑 Yes, delete {len(ticked)}", visible=True))
+
+
+def history_bulk_delete(ticked, query):
+    for folder in ticked or []:
+        history.delete(Path(folder))
+    return (history_choices(query), history_ticks(query), f"✅ Deleted {len(ticked or [])}.",
+            gr.Button(visible=False))

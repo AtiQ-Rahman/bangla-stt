@@ -26,8 +26,9 @@ from webui.controls import (busy_buttons, clear_results, enable_if, idle_buttons
 from webui.exporting import export_files, export_translation, export_video
 from webui.fixing import refresh_llms, resume_correct, run_correct
 from webui.look import BEEP_JS, CSS, READALONG_JS, step, THEME
-from webui.opening import (follow_tick, history_choices, history_delete, history_open,
-                           history_preview, history_search, open_queue_item, stop_following)
+from webui.opening import (follow_tick, history_bulk_ask, history_bulk_delete, history_choices,
+                           history_delete, history_open, history_preview, history_search,
+                           history_ticks, open_queue_item, stop_following)
 from webui.phone import USER as PHONE_USER, certificate, lan_ip, new_password
 from webui.readalong import EMPTY as READALONG_EMPTY, readalong, save_readalong
 from webui import watch
@@ -313,6 +314,17 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
             with gr.Row():
                 history_open_btn = gr.Button("📂 Open", variant="primary")
                 history_delete_btn = gr.Button("🗑 Delete", elem_classes="stop-btn")
+            with gr.Accordion("🗑 Delete several at once", open=False):
+                history_ticked = gr.CheckboxGroup(history.entries(), show_label=False,
+                                                  info="Tick the ones to delete — the 🔍 search above narrows this list.")
+                with gr.Row():
+                    history_tick_all = gr.Button("☑ Select all shown", size="sm", scale=0, min_width=150)
+                    history_tick_none = gr.Button("☐ Select none", size="sm", scale=0, min_width=130)
+                    history_bulk_btn = gr.Button("🗑 Delete selected", size="sm", scale=0, min_width=150,
+                                                 elem_classes="stop-btn")
+                    history_bulk_yes = gr.Button("🗑 Yes, delete", variant="stop", size="sm", scale=0,
+                                                 min_width=150, visible=False)
+                history_bulk_info = gr.Markdown("")
 
     # ---- events ---------------------------------------------------------------------------
     # Buttons switched together by busy_buttons()/idle_buttons(), then the page's busy state.
@@ -482,7 +494,18 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     batch_table.select(open_queue_item, batch_queue, open_outputs).then(
         readalong, readalong_inputs, readalong_view)
     follow_timer.tick(follow_tick, follow, open_outputs, show_progress="hidden")
-    history_delete_btn.click(history_delete, history_pick, [history_pick, history_info])
+    history_delete_btn.click(history_delete, history_pick, [history_pick, history_info]).then(
+        history_ticks, history_query, history_ticked)
+    # deleting several: the ticked list follows the search; Delete asks once more before it deletes
+    history_refresh.click(history_ticks, history_query, history_ticked)
+    pages.select(history_ticks, history_query, history_ticked)
+    history_query.input(history_ticks, history_query, history_ticked, show_progress="hidden")
+    history_tick_all.click(lambda q: history_ticks(q, tick_all=True), history_query, history_ticked)
+    history_tick_none.click(history_ticks, history_query, history_ticked)
+    history_ticked.input(lambda: ("", gr.Button(visible=False)), None, [history_bulk_info, history_bulk_yes])
+    history_bulk_btn.click(history_bulk_ask, history_ticked, [history_bulk_info, history_bulk_yes])
+    history_bulk_yes.click(history_bulk_delete, [history_ticked, history_query],
+                           [history_pick, history_ticked, history_bulk_info, history_bulk_yes])
 
     # Claude, LLM list, RAM
     copied = gr.Checkbox(False, visible=False)  # filled by the browser (a State can't be)
