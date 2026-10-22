@@ -15,6 +15,7 @@ class FakeWhisper:
 
     def transcribe(self, chunk, **kw):
         self.chunks.append(len(chunk) / SAMPLE_RATE)
+        self.kw = kw
         mid = len(chunk) / SAMPLE_RATE / 2
         words = [SimpleNamespace(start=mid, end=mid + 0.2, word="শব্দ", probability=1.0)] + self.extra
         return [SimpleNamespace(words=words)], None
@@ -41,6 +42,13 @@ def test_invented_words_at_chunk_end_are_dropped():
                          SimpleNamespace(start=3.6, end=3.6, word=" সাড়ে", probability=0.9)])
     out = list(T._whisper_chunks(model, {"language": "bn", "chunk_sec": 14.0}, wav, 0.0, None, 0.0))
     assert out[0][2].text == "শব্দ আর"  # zero-length and unsure words at the end are gone
+
+
+def test_hotwords_are_not_sent_to_the_bangla_whisper():
+    wav = (0.3 * np.sin(2 * np.pi * 220 * np.arange(5 * SAMPLE_RATE) / SAMPLE_RATE)).astype(np.float32)
+    model = FakeWhisper()
+    list(T._whisper_chunks(model, {"language": "bn", "chunk_sec": 14.0}, wav, 0.0, ["রাজশাহী"], 0.0))
+    assert model.kw.get("hotwords") is None  # as a prompt they make this model drop text
 
 
 def test_text_is_nfc():

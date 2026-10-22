@@ -342,7 +342,8 @@ def _whisper_chunks(model, spec: dict, wav: np.ndarray, offset: float, hotwords:
                     min_prob: float = 0.8) -> Iterator[tuple[int, int, Segment | None]]:
     """Whisper on chunks of about spec["chunk_sec"], each cut at the quietest moment of its last
     search_sec; near-silent chunks are skipped (Whisper would invent text for them). Trailing
-    words that are zero-length or below min_prob are dropped (test clip CER 8.4% -> 3.9%)."""
+    words that are zero-length or below min_prob are dropped (test clip CER 8.4% -> 3.9%).
+    hotwords are not used: as a prompt they made this model drop text (CER 3.9% -> 11.4%)."""
     size, search = int(spec["chunk_sec"] * SAMPLE_RATE), int(search_sec * SAMPLE_RATE)
     total, s = len(wav), int(keep_from_sec * SAMPLE_RATE)
     while s < total:
@@ -352,8 +353,7 @@ def _whisper_chunks(model, spec: dict, wav: np.ndarray, offset: float, hotwords:
         if len(chunk) > SAMPLE_RATE // 4 and float(np.sqrt((chunk ** 2).mean())) > silence_rms:
             segments, _ = model.transcribe(chunk, language=spec["language"], beam_size=1,
                                            without_timestamps=True, condition_on_previous_text=False,
-                                           word_timestamps=True, vad_filter=False,
-                                           hotwords=", ".join(hotwords) if hotwords else None)
+                                           word_timestamps=True, vad_filter=False)
             t0 = offset + s / SAMPLE_RATE
             found = [w for seg in segments for w in seg.words or []]
             # The model invents words at a chunk's end (zero-length, or unsure): drop them.
