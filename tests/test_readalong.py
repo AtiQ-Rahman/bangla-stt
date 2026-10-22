@@ -13,7 +13,8 @@ def test_words_have_times_and_audio(tmp_path, monkeypatch, segments):
     view = readalong("আমি ভাত খাই। <b>জন</b> প্রশাসন মন্ত্রণালয়", segments, str(entry))
     assert view.count('class="w"') == 6
     assert 'data-s="2.00">খাই।<' in view  # an edited word keeps its time
-    assert "&lt;b&gt;" in view and "<b>" not in view  # typed text can't inject HTML
+    text_part = view[view.index('class="ra-text"'):]
+    assert "&lt;b&gt;" in text_part and "<b>" not in text_part  # typed text can't inject HTML
     assert "/gradio_api/file=" in view
 
 

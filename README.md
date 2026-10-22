@@ -28,7 +28,10 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
 2. **Transcribe**. A progress bar shows how far it is and the time left. **Stop** keeps what
    is done; **⏯ Resume** continues from the last word. The transcript box is editable and the
    downloads (.txt, .srt) follow your edits. **▶ Read along** shows the text next to the audio:
-   click any word to hear it, and the word being played is highlighted.
+   click any word to hear it, and the word being played is highlighted; ⏪/⏩ 5 s, speed and
+   Follow are in its toolbar. **✏️ Edit text** there lets you fix words while listening
+   (Alt+click a word to hear it, Ctrl+Space plays from the cursor, Ctrl+Enter saves, Esc
+   cancels); saving updates the transcript, downloads and subtitles, keeping the timings.
 3. **Use the text**:
    - *AI-fixed (local)*: punctuation and spelling with a free local model (below); it can be
      stopped and resumed too, and gives fixed .txt and .srt.
@@ -52,6 +55,10 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
 | Names or special words | the decoder prefers their spelling |
 | Label who is speaking | "Speaker 1 / Speaker 2 …" in the text, subtitles and Read along (models are downloaded once, ~35 MB); takes about a quarter longer |
 | Use my browser login | if YouTube says "confirm you're not a bot", yt-dlp retries with your browser's YouTube cookies (they stay on this PC) |
+
+**Your defaults:** set the language, models and options in *Settings* and press *💾 Save these
+as my defaults* (also keeps the Claude task, the local AI model and the Batch language). They
+are stored in `~/.config/bangla-stt/settings.json`; *↺ Built-in defaults* goes back.
 
 ## Batch and History
 

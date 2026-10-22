@@ -79,3 +79,10 @@ def test_open_and_follow(tmp_path, monkeypatch, segments):
     done = opening.follow_tick(folder)
     assert done[field["follow"]] is None
     assert "youtu.be/x" in done[field["status"]] and "finished" in str(done[field["pbar"]].value)
+
+
+def test_defaults_match_their_outputs(tmp_path, monkeypatch):
+    from webui import settings
+    monkeypatch.setattr(settings, "FILE", tmp_path / "s.json")
+    assert {len(settings.apply_defaults())} == set(outputs_of("apply_defaults"))
+    assert {len(settings.reset_defaults())} == set(outputs_of("reset_defaults"))

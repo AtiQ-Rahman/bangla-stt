@@ -3,6 +3,7 @@ import gradio as gr
 
 from stt.transcribe import LANGUAGE_MODELS
 from stt.worker import WORKER
+from webui import settings
 from webui.common import bar, fmt_dur, no_file
 
 
@@ -62,7 +63,7 @@ def pick_language(language):
     """Show the models and options that fit the chosen language."""
     bangla = language == "Bangla"
     models = LANGUAGE_MODELS[language]
-    return (gr.Radio(choices=models, value=models[0]), gr.Checkbox(visible=bangla),
+    return (gr.Radio(choices=models, value=settings.model_for(language)), gr.Checkbox(visible=bangla),
             gr.Checkbox(visible=bangla), gr.Checkbox(visible=bangla),
             gr.Textbox(placeholder="e.g. রাজশাহী, তারেক রহমান, প্রথম আলো" if bangla
                        else "e.g. Stanford, Reed College, Steve Jobs"))

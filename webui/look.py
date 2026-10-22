@@ -53,27 +53,126 @@ BEEP_JS = """
 READALONG_JS = """
 <script>
 (() => {
+  const box = (el) => el && el.closest && el.closest(".readalong");
+  const seek = (b, t) => { const a = b.querySelector("audio"); a.currentTime = t; a.play(); };
+  const editing = (b) => b.classList.contains("editing");
+  const saved = new WeakMap();  // a view's text before editing, for Cancel
+
+  // The word at the text cursor (or the one just before it).
+  const wordAtCursor = (b) => {
+    const sel = getSelection();
+    if (!sel.rangeCount) return null;
+    let node = sel.anchorNode;
+    if (node && node.nodeType === 3) node = node.parentElement;
+    const word = node && node.closest && node.closest(".w");
+    if (word) return word;
+    const words = [...b.querySelectorAll(".w")];
+    return words.reverse().find((w) => sel.getRangeAt(0).comparePoint(w, 0) <= 0) || null;
+  };
+  // The edited text: paragraphs, with "Speaker N:" where a speaker badge is.
+  const editedText = (b) => [...b.querySelectorAll(".ra-text p")].map((p) => {
+    let out = "";
+    p.childNodes.forEach((n) => {
+      if (n.nodeType === 1 && n.classList.contains("ts")) return;
+      if (n.nodeType === 1 && n.classList.contains("spk")) { out += "\\n\\n" + n.innerText.trim() + ": "; return; }
+      out += n.textContent;
+    });
+    return out.trim();
+  }).join("\\n\\n").trim();
+
+  const startEdit = (b) => {
+    const text = b.querySelector(".ra-text");
+    saved.set(b, text.innerHTML);
+    b.classList.add("editing");
+    text.contentEditable = "true";
+    text.querySelectorAll(".ts, .spk").forEach((n) => (n.contentEditable = "false"));
+    text.focus();
+  };
+  const stopEdit = (b, keep) => {
+    const text = b.querySelector(".ra-text");
+    if (!keep) text.innerHTML = saved.get(b);
+    text.contentEditable = "false";
+    b.classList.remove("editing");
+  };
+  const save = (b) => {
+    const input = document.querySelector("#ra-edit-box textarea");
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+    setter.call(input, editedText(b));
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    stopEdit(b, true);
+    setTimeout(() => document.querySelector("#ra-save-btn").click(), 60);
+  };
+
   document.addEventListener("click", (e) => {
-    const word = e.target.closest && e.target.closest(".readalong .w, .readalong .ts");
-    if (!word) return;
-    const audio = word.closest(".readalong").querySelector("audio");
-    audio.currentTime = parseFloat(word.dataset.s);
-    audio.play();
+    const b = box(e.target);
+    if (!b) return;
+    const act = e.target.closest("[data-act]");
+    const a = b.querySelector("audio");
+    if (act && act.tagName === "BUTTON") {
+      ({
+        back: () => (a.currentTime = Math.max(0, a.currentTime - 5)),
+        fwd: () => (a.currentTime = a.currentTime + 5),
+        play: () => (a.paused ? a.play() : a.pause()),
+        edit: () => startEdit(b), save: () => save(b), cancel: () => stopEdit(b, false),
+      })[act.dataset.act]();
+      return;
+    }
+    const word = e.target.closest(".w, .ts");
+    if (word && (!editing(b) || e.altKey)) {
+      e.preventDefault();
+      seek(b, parseFloat(word.dataset.s));
+    }
+  });
+  // Speed and Follow are remembered in this browser, and applied whenever a view starts playing.
+  const remember = (k, v) => { try { localStorage.setItem("ra-" + k, v); } catch (e) {} };
+  const recall = (k) => { try { return localStorage.getItem("ra-" + k); } catch (e) { return null; } };
+  document.addEventListener("change", (e) => {
+    const b = box(e.target);
+    if (!b || !e.target.dataset.act) return;
+    if (e.target.dataset.act === "speed") {
+      b.querySelector("audio").playbackRate = parseFloat(e.target.value);
+      remember("speed", e.target.value);
+    }
+    if (e.target.dataset.act === "follow") {
+      b.dataset.follow = e.target.checked ? "1" : "0";
+      remember("follow", b.dataset.follow);
+    }
+  });
+  document.addEventListener("play", (e) => {
+    const b = box(e.target);
+    if (!b) return;
+    const speed = recall("speed"), follow = recall("follow");
+    if (speed) { e.target.playbackRate = parseFloat(speed); b.querySelector('[data-act="speed"]').value = speed; }
+    if (follow) { b.dataset.follow = follow; b.querySelector('[data-act="follow"]').checked = follow === "1"; }
+  }, true);
+  document.addEventListener("keydown", (e) => {
+    const b = box(e.target);
+    if (!b || !editing(b)) return;
+    const a = b.querySelector("audio");
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(b); }
+    else if (e.key === "Escape") { e.preventDefault(); stopEdit(b, false); }
+    else if (e.code === "Space" && e.ctrlKey) {
+      e.preventDefault();
+      if (!a.paused) { a.pause(); return; }
+      const word = wordAtCursor(b);
+      if (word) a.currentTime = parseFloat(word.dataset.s);
+      a.play();
+    }
   });
   document.addEventListener("timeupdate", (e) => {
-    const box = e.target.closest && e.target.closest(".readalong");
-    if (!box) return;
-    const words = box.querySelectorAll(".w"), t = e.target.currentTime;
+    const b = box(e.target);
+    if (!b) return;
+    const words = b.querySelectorAll(".w"), t = e.target.currentTime;
     let lo = 0, hi = words.length - 1, now = -1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
       if (parseFloat(words[mid].dataset.s) <= t) { now = mid; lo = mid + 1; } else hi = mid - 1;
     }
-    const lit = box.querySelector(".w.now");
+    const lit = b.querySelector(".w.now");
     if (now < 0 || lit === words[now]) return;
     if (lit) lit.classList.remove("now");
     words[now].classList.add("now");
-    words[now].scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (b.dataset.follow === "1" && !editing(b)) words[now].scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, true);
 })();
 </script>
@@ -155,6 +254,22 @@ CSS = """
 .ra-text .spk { display: inline-block; font-size: 0.8rem; font-weight: 600; margin: 0 6px 0 2px;
                 padding: 0 8px; border-radius: 999px; background: var(--color-accent-soft);
                 color: var(--color-accent); }
+.ra-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 6px; }
+.ra-bar button, .ra-bar select { border: 1px solid var(--border-color-primary); border-radius: 8px;
+                                 background: var(--block-background-fill); padding: 4px 10px;
+                                 font-size: 0.9rem; cursor: pointer; color: var(--body-text-color); }
+.ra-bar button:hover { background: var(--color-accent-soft); }
+.ra-bar label { display: flex; align-items: center; gap: 4px; font-size: 0.9rem; }
+.ra-bar .ra-spacer { flex: 1; }
+.ra-bar .ra-primary { background: var(--primary-600); color: white; border-color: var(--primary-600); }
+.readalong .edit-only { display: none; }
+.readalong.editing .edit-only { display: inline; }
+.readalong.editing button.edit-only { display: inline-block; }
+.readalong.editing .read-only { display: none; }
+.readalong.editing .ra-text { outline: 2px solid var(--primary-400); background: var(--background-fill-primary);
+                              cursor: text; }
+.readalong.editing .ra-text .w { cursor: text; }
+.ra-hidden { display: none !important; }
 .ra-empty { padding: 24px; text-align: center; color: var(--body-text-color-subdued); }
 #batch-table tbody tr { cursor: pointer; }
 #batch-table, #batch-table * { font-family: var(--font) !important; }

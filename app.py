@@ -26,7 +26,8 @@ from webui.look import BEEP_JS, CSS, READALONG_JS, step, THEME
 from webui.opening import (follow_tick, history_choices, history_delete, history_open,
                            history_preview, history_search, open_queue_item, stop_following)
 from webui.phone import USER as PHONE_USER, certificate, lan_ip, new_password
-from webui.readalong import EMPTY as READALONG_EMPTY, readalong
+from webui.readalong import EMPTY as READALONG_EMPTY, readalong, save_readalong
+from webui.settings import apply_defaults, default_llm, reset_defaults, save_defaults
 from webui.sources import (audio_changed, detect_language, get_audio_file, get_video_file,
                            get_youtube, get_youtube_video, selected_part, show_length)
 from webui.transcribing import edited_subtitles, edited_text, resume, run
@@ -103,6 +104,13 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                         cookies_file = gr.File(
                             label="YouTube cookies.txt (only if YouTube still blocks the download)",
                             file_types=[".txt"], type="filepath")
+                        with gr.Row():
+                            save_defaults_btn = gr.Button("💾 Save these as my defaults", size="sm")
+                            reset_defaults_btn = gr.Button("↺ Built-in defaults", size="sm")
+                        defaults_msg = gr.Markdown(
+                            "Saves the language, models and options here, plus the Claude task, the "
+                            "local AI model and the Batch language, for every time the app opens.",
+                            elem_classes="hint")
                     with gr.Row():
                         btn = gr.Button("▶ Transcribe", variant="primary", size="lg", scale=3,
                                         interactive=False)  # until there is audio
@@ -129,6 +137,10 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                                             "the downloads follow your edits.")
                         with gr.Tab("▶ Read along") as readalong_tab:
                             readalong_view = gr.HTML(READALONG_EMPTY, padding=False)
+                            # Filled and pressed by the page script when an edit is saved.
+                            ra_edit = gr.Textbox(elem_id="ra-edit-box", elem_classes="ra-hidden",
+                                                 show_label=False, container=False)
+                            ra_save = gr.Button("save", elem_id="ra-save-btn", elem_classes="ra-hidden")
                         with gr.Tab("Subtitles (.srt)"):
                             srt_view = gr.Textbox(show_label=False, lines=16, max_lines=16,
                                                   buttons=["copy"], elem_classes="srt", autoscroll=False)
@@ -286,6 +298,8 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     # Read along: render when its tab is opened, and after a run or an open brings a new result.
     readalong_inputs = [transcript, segs, entry]
     readalong_tab.select(readalong, readalong_inputs, readalong_view)
+    ra_save.click(save_readalong, [ra_edit, segs, title, entry],
+                  [transcript, txt_btn, srt_btn, srt_view, readalong_view])
     for event in (transcribe_event, resume_event, resume_top_event):
         event.success(readalong, readalong_inputs, readalong_view)
     for event, message, title_text in finished:
@@ -368,7 +382,14 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     claude_btn.click(claude_sent, [transcript, corrected, claude_text, claude_task, claude_custom,
                                    language, copied], claude_status, js=SEND_TO_CLAUDE_JS)
     refresh.click(refresh_llms, None, llm)
-    demo.load(refresh_llms, None, llm)
+    demo.load(default_llm, None, llm)
+    # Defaults: applied when the page opens; saved / reset from Settings.
+    default_outputs = [language, model_name, quantize, use_lm, digits, speakers, use_browser, claude_task,
+                       batch_lang]
+    demo.load(apply_defaults, None, default_outputs)
+    save_defaults_btn.click(save_defaults, [language, model_name, quantize, use_lm, digits, speakers,
+                                            use_browser, claude_task, llm, batch_lang], defaults_msg)
+    reset_defaults_btn.click(reset_defaults, None, default_outputs + [defaults_msg])
     gr.Timer(5).tick(ram_tick, ram_state, [ram, ram_state, alert], show_progress="hidden").then(
         None, alert, None, js="(signal) => { if (signal) window.sttBeep && window.sttBeep(); }")
 
