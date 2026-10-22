@@ -338,10 +338,11 @@ def _quietest(wav: np.ndarray, lo: int, hi: int, hop: int = 320) -> int:
 
 
 def _whisper_chunks(model, spec: dict, wav: np.ndarray, offset: float, hotwords: list[str] | None,
-                    keep_from_sec: float, search_sec: float = 4.0, silence_rms: float = 1e-3
-                    ) -> Iterator[tuple[int, int, Segment | None]]:
+                    keep_from_sec: float, search_sec: float = 4.0, silence_rms: float = 1e-3,
+                    min_prob: float = 0.8) -> Iterator[tuple[int, int, Segment | None]]:
     """Whisper on chunks of about spec["chunk_sec"], each cut at the quietest moment of its last
-    search_sec; near-silent chunks are skipped (Whisper would invent text for them)."""
+    search_sec; near-silent chunks are skipped (Whisper would invent text for them). Trailing
+    words that are zero-length or below min_prob are dropped (test clip CER 8.4% -> 3.9%)."""
     size, search = int(spec["chunk_sec"] * SAMPLE_RATE), int(search_sec * SAMPLE_RATE)
     total, s = len(wav), int(keep_from_sec * SAMPLE_RATE)
     while s < total:
@@ -354,7 +355,11 @@ def _whisper_chunks(model, spec: dict, wav: np.ndarray, offset: float, hotwords:
                                            word_timestamps=True, vad_filter=False,
                                            hotwords=", ".join(hotwords) if hotwords else None)
             t0 = offset + s / SAMPLE_RATE
-            words = [Word(t0 + w.start, t0 + w.end, w.word) for seg in segments for w in seg.words or []]
+            found = [w for seg in segments for w in seg.words or []]
+            # The model invents words at a chunk's end (zero-length, or unsure): drop them.
+            while found and (found[-1].end - found[-1].start < 0.02 or found[-1].probability < min_prob):
+                found.pop()
+            words = [Word(t0 + w.start, t0 + w.end, w.word) for w in found]
         yield e, total, (Segment(words[0].start, words[-1].end, _join(words), words) if words else None)
         s = e
 

@@ -47,6 +47,8 @@ features; this file is about the code and the lessons learned building it.
 - Bangla `য়` has two Unicode encodings: all text is NFC (transcribe output, History search, CER).
 - MMS drops words at window starts/ends: windows overlap (3 s lead, 1 s margin). The Bengali.AI
   Whisper must run on ~14 s chunks (long-form mode drops passages), with word timestamps on.
+  It invents words at each chunk's end: trailing zero-length or <0.8-probability words are
+  dropped. Shorter chunks (8–10 s) and beam 5 are much worse; it also writes ো as া sometimes.
 - RAM is tight (16 GB): int8 quantize *in place*, KenLM is memory-mapped, the worker is killed
   before Ollama runs, `check_ram` refuses loads that won't fit.
 - API tests (`gradio_client`) don't fire UI change events (e.g. call `/pick_language` first so a
@@ -55,5 +57,5 @@ features; this file is about the code and the lessons learned building it.
   use a bracket trick (`[s]erve.py`) or PID files.
 
 ## Measured (test clip: 102 s Bangla news)
-CER: MMS+LM int8 4.0% (~35 s), Bengali.AI Whisper chunked 4.4% (better names, 2–5x slower),
+CER: MMS+LM int8 4.0% (~35 s), Bengali.AI Whisper chunked 3.9% (~4 min; better names),
 XLS-R 9%. Noise filters, Demucs, LM weight tuning and gemma3:12b fixes did not help.
