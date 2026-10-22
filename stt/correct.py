@@ -2,7 +2,6 @@
 import difflib
 import json
 import os
-import re
 import urllib.request
 from typing import Iterator
 

@@ -9,6 +9,7 @@ import pytest
 
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 app = pytest.importorskip("app")
+from webui import common, controls, opening  # noqa: E402  (after the offline switch)
 
 
 def outputs_of(fn_name: str) -> list[int]:
@@ -18,16 +19,16 @@ def outputs_of(fn_name: str) -> list[int]:
 
 
 def test_button_state_handlers_match_controls():
-    n = len(outputs_of("idle_buttons") and app.demo.fns[next(
-        k for k, b in app.demo.fns.items() if getattr(b.fn, "__name__", "") == "idle_buttons")].outputs)
-    assert len(app.busy_buttons("transcribe")()) == n
-    assert len(app.idle_buttons("a.mp3", "text", None, None)) == n
-    assert len(app.stopped("a.mp3", "text", None, None, "transcribe")) == n + 3
+    n = len(app.controls)
+    assert set(outputs_of("idle_buttons")) == {n}
+    assert len(controls.busy_buttons("transcribe")()) == n
+    assert len(controls.idle_buttons("a.mp3", "text", None, None)) == n
+    assert len(controls.stopped("a.mp3", "text", None, None, "transcribe")) == n + 3
 
 
 @pytest.mark.parametrize("fn", ["clear_results"])
 def test_fixed_handlers_match_their_outputs(fn):
-    assert {len(getattr(app, fn)())} == set(outputs_of(fn))
+    assert {len(getattr(controls, fn)())} == set(outputs_of(fn))
 
 
 def test_open_from_history_matches_outputs(tmp_path, monkeypatch, segments):
@@ -39,13 +40,15 @@ def test_open_from_history_matches_outputs(tmp_path, monkeypatch, segments):
            "use_lm": True, "words": [], "start": None, "end": None}
     entry = history.create(job)
     history.save(entry, job, segments, 3.0, "stopped")
-    values = app.history_open(str(entry))
+    values = opening.history_open(str(entry))
+    assert len(values) == len(opening.OPEN_FIELDS)
     assert {len(values)} == set(outputs_of("history_open")) == set(outputs_of("open_queue_item"))
 
 
 def test_parse_time():
-    assert app.parse_time("90") == 90 and app.parse_time("1:30") == 90 and app.parse_time("0:01:30") == 90
-    assert app.parse_time("") is None
+    parse = common.parse_time
+    assert parse("90") == 90 and parse("1:30") == 90 and parse("0:01:30") == 90
+    assert parse("") is None
 
 
 def test_open_and_follow(tmp_path, monkeypatch, segments):
@@ -58,21 +61,21 @@ def test_open_and_follow(tmp_path, monkeypatch, segments):
            "use_lm": True, "words": [], "start": None, "end": None, "source": "https://youtu.be/x"}
     entry = history.create(job)
     folder = str(entry)
-    field = dict(zip(app.OPEN_FIELDS, range(len(app.OPEN_FIELDS))))
+    field = dict(zip(opening.OPEN_FIELDS, range(len(opening.OPEN_FIELDS))))
 
-    app.LIVE[folder] = {"segments": segments[:1], "frac": 0.4, "audio_sec": 10.0}
+    common.LIVE[folder] = {"segments": segments[:1], "frac": 0.4, "audio_sec": 10.0}
     try:
-        values = app.history_open(folder)
+        values = opening.history_open(folder)
         assert values[field["follow"]] == folder and values[field["partial"]] is None
         assert "আমি ভাত খাই" in values[field["transcript"]]
         segments_now = segments
-        app.LIVE[folder]["segments"] = segments_now
-        tick = app.follow_tick(folder)
+        common.LIVE[folder]["segments"] = segments_now
+        tick = opening.follow_tick(folder)
         assert "মন্ত্রণালয়" in tick[field["transcript"]]
     finally:
-        app.LIVE.pop(folder, None)
+        common.LIVE.pop(folder, None)
 
     history.save(entry, job, segments, 8.0, "done")
-    done = app.follow_tick(folder)
+    done = opening.follow_tick(folder)
     assert done[field["follow"]] is None
     assert "youtu.be/x" in done[field["status"]] and "finished" in str(done[field["pbar"]].value)
