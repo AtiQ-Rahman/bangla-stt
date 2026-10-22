@@ -11,8 +11,26 @@ from webui.common import bar, file_button, fmt_dur, language_of, LIVE, out_file,
 from webui.sources import get_file_audio
 
 
-def history_choices():
-    return gr.Dropdown(choices=history.entries(), value=None)
+def history_choices(query=""):
+    return gr.Dropdown(choices=history.entries(query or ""), value=None)
+
+
+def history_search(query):
+    """Search all transcripts: narrow the list, and show where the words were found."""
+    query = (query or "").strip()
+    found = history.entries(query)
+    if not query:
+        return gr.Dropdown(choices=found, value=None), ""
+    if not found:
+        return gr.Dropdown(choices=[], value=None), f"No transcript contains “{query}”."
+    lines = [f"**{len(found)}** found for “{query}” — pick one above to open it."]
+    for label, folder in found[:20]:
+        snip = history.snippet(Path(folder), query)
+        if snip:
+            i = snip.lower().find(query.lower())
+            snip = f"{snip[:i]}**{snip[i:i + len(query)]}**{snip[i + len(query):]}"
+        lines.append(f"- {label}" + (f"  \n  {snip}" if snip else ""))
+    return gr.Dropdown(choices=found, value=None), "\n".join(lines)
 
 
 def source_link(job: dict, markdown: bool = True) -> str:

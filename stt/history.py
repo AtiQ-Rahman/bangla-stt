@@ -55,15 +55,35 @@ def save_text(entry: Path, name: str, text: str):
     (entry / name).write_text(text, encoding="utf-8")
 
 
-def entries() -> list[tuple[str, str]]:
-    """(label, folder) for every entry, newest first."""
+def _texts(folder: Path) -> str:
+    """Everything searchable in an entry: its transcript and AI-fixed text."""
+    return " ".join((folder / name).read_text(encoding="utf-8")
+                    for name in ("transcript.txt", "corrected.txt") if (folder / name).exists())
+
+
+def snippet(folder: Path, query: str, width: int = 60) -> str:
+    """The text around the first match of query in an entry ("" if only the title matches)."""
+    text = " ".join(_texts(folder).split())
+    i = text.lower().find(query.lower())
+    if i < 0:
+        return ""
+    start, end = max(0, i - width), min(len(text), i + len(query) + width)
+    return ("…" if start else "") + text[start:end] + ("…" if end < len(text) else "")
+
+
+def entries(query: str = "") -> list[tuple[str, str]]:
+    """(label, folder) for every entry, newest first; with a query, only those whose title,
+    transcript or AI-fixed text contains it (ignoring case)."""
     out = []
+    query = query.strip().lower()
     for entry in sorted(HISTORY_DIR.glob("*/meta.json"), reverse=True):
         try:
             meta = json.loads(entry.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         job, status = meta["job"], meta["status"]
+        if query and query not in job["title"].lower() and query not in _texts(entry.parent).lower():
+            continue
         # "running" in a saved file means the app stopped mid-way (closed or crashed).
         mark = {"done": "✅", "stopped": "⏸", "running": "⏸"}[status]
         name = entry.parent.name  # "2026-10-22 09-01-05 title"

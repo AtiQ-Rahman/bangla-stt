@@ -42,3 +42,14 @@ def test_delete_stays_inside_history(tmp_path):
     outside.mkdir()
     history.delete(outside)
     assert outside.exists()
+
+
+def test_search_finds_words_in_transcripts(tmp_path, segments):
+    a = history.create(job(tmp_path))
+    history.save(a, job(tmp_path), segments, 8.0, "done")
+    history.save_text(a, "corrected.txt", "জনপ্রশাসন মন্ত্রণালয়ে আজ বৈঠক")
+    assert len(history.entries("প্রশাসন")) == 1  # in the transcript
+    assert len(history.entries("বৈঠক")) == 1  # only in the AI-fixed text
+    assert history.entries("নেই") == []
+    assert len(history.entries("my talk")) == 1  # the title, any case
+    assert "ভাত" in history.snippet(a, "ভাত")

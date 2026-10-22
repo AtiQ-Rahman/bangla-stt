@@ -21,7 +21,7 @@ from webui.exporting import export_files, export_video
 from webui.fixing import refresh_llms, resume_correct, run_correct
 from webui.look import BEEP_JS, CSS, step, THEME
 from webui.opening import (follow_tick, history_choices, history_delete, history_open,
-                           history_preview, open_queue_item, stop_following)
+                           history_preview, history_search, open_queue_item, stop_following)
 from webui.sources import (audio_changed, detect_language, get_audio_file, get_video_file,
                            get_youtube, get_youtube_video, selected_part, show_length)
 from webui.transcribing import edited_subtitles, edited_text, resume, run
@@ -205,6 +205,9 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
         with gr.Tab("🕘 History", id="history"):
             gr.Markdown("Every transcription is kept here (in the `history` folder of the app), even "
                         "after the app is closed. Open one to read, download or **Resume** it.")
+            history_query = gr.Textbox(show_label=False, container=False,
+                                       placeholder="🔍 Search words in all transcripts…")
+            history_found = gr.Markdown("")
             with gr.Row(equal_height=True):
                 history_pick = gr.Dropdown(history.entries(), label="Saved transcriptions", scale=4)
                 history_refresh = gr.Button("↻", scale=0, min_width=44)
@@ -249,6 +252,18 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     batch_clear.click(clear_queue, None, [batch_queue, batch_table, batch_pick, batch_bar])
     running = [transcribe_event, resume_event, resume_top_event, correct_event, fix_resume_event,
                export_event, batch_event]
+    # When long work ends well (not stopped, no error): chime, and notify if the page is hidden.
+    # Starting it is a click, the moment a browser allows asking for notification permission.
+    finished = [(transcribe_event, status, "Transcription finished"),
+                (resume_event, status, "Transcription finished"),
+                (resume_top_event, status, "Transcription finished"),
+                (correct_event, fix_bar, "AI fix finished"), (fix_resume_event, fix_bar, "AI fix finished"),
+                (export_event, export_bar, "Video with subtitles ready"), (batch_event, batch_bar, "Batch finished")]
+    for start_button in (btn, resume_btn, resume_top, fix_btn, fix_resume_btn, video_btn_burn, batch_btn):
+        start_button.click(None, js="() => window.sttAskNotify && window.sttAskNotify()")
+    for event, message, title_text in finished:
+        event.success(None, message, None,
+                      js=f"(m) => window.sttNotify && window.sttNotify({json.dumps(title_text)}, m)")
     for event in running:  # .then runs after errors too; Stop restores the buttons itself
         event.then(idle_buttons, idle_inputs, controls)
     stopping = bar_html("⏹ Stopping — finishing the current step…", done=True)
@@ -306,8 +321,10 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     export_btn.click(export_files, [export_which, transcript, corrected, segs, title], export_out)
 
     # History
-    history_refresh.click(history_choices, None, history_pick)
-    pages.select(history_choices, None, history_pick)  # fresh list whenever a page is opened
+    history_refresh.click(history_choices, history_query, history_pick)
+    pages.select(history_choices, history_query, history_pick)  # fresh list whenever a page is opened
+    history_query.input(history_search, history_query, [history_pick, history_found],
+                        trigger_mode="always_last")
     history_pick.change(history_preview, history_pick, history_info)
     open_outputs = [pages, audio, title, language, transcript, txt_btn, srt_btn, srt_view, corrected,
                     status, partial, segs, entry, resume_btn, resume_top, video_src, youtube_url,

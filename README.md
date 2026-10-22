@@ -55,7 +55,11 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
   or file is loaded ready to run on its own. Opened items show a link back to their YouTube source.
 - **🕘 History**: every transcription (audio, text, subtitles, AI-fixed text, progress) is kept
   in the `history` folder. Open one to read, download or **Resume** it — even after the app or
-  the PC was restarted. Delete entries you no longer need (the audio copies take space).
+  the PC was restarted. **Search** finds words in all saved transcripts. Delete entries you
+  no longer need (the audio copies take space).
+
+When a transcription, batch, AI fix or subtitled video finishes, the page chimes, and if you
+are in another tab or window you get a desktop notification (allow it the first time).
 
 ## RAM
 

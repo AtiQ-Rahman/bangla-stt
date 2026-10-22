@@ -3,7 +3,8 @@ import gradio as gr
 
 
 # Browsers only allow sound after the user has interacted with the page, so the first click
-# anywhere unlocks an AudioContext; sttBeep() then plays a two-tone alert through it.
+# anywhere unlocks an AudioContext. sttBeep() is the low-RAM alarm; sttNotify() chimes when long
+# work ends and, if the page is in the background, shows a desktop notification.
 BEEP_JS = """
 <script>
 (() => {
@@ -14,9 +15,9 @@ BEEP_JS = """
   };
   document.addEventListener("pointerdown", unlock, { capture: true });
   document.addEventListener("keydown", unlock, { capture: true });
-  window.sttBeep = () => {
+  const play = (notes) => {
     unlock();
-    [[880, 0], [660, 0.28], [880, 0.56], [660, 0.84]].forEach(([freq, at]) => {
+    notes.forEach(([freq, at]) => {
       const osc = ctx.createOscillator(), gain = ctx.createGain();
       osc.frequency.value = freq;
       gain.gain.setValueAtTime(0.0001, ctx.currentTime + at);
@@ -26,6 +27,21 @@ BEEP_JS = """
       osc.start(ctx.currentTime + at);
       osc.stop(ctx.currentTime + at + 0.25);
     });
+  };
+  // Low RAM: an urgent two-tone alarm.
+  window.sttBeep = () => play([[880, 0], [660, 0.28], [880, 0.56], [660, 0.84]]);
+  // Long work finished: a short rising chime, and a desktop notification if the page is hidden.
+  window.sttAskNotify = () => {
+    if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
+  };
+  window.sttNotify = (title, html) => {
+    play([[523, 0], [659, 0.15], [784, 0.3]]);
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html || "";
+    const body = tmp.innerText.replace(/\s+/g, " ").trim();
+    if ("Notification" in window && Notification.permission === "granted" && document.hidden) {
+      new Notification(title, { body });
+    }
   };
 })();
 </script>
