@@ -70,8 +70,8 @@ are stored in `~/.config/bangla-stt/settings.json` (learned words in `dictionary
 
 **🎤 Live**: press *Record* and speak — the text appears a few seconds after each pause (a long
 stretch without pauses is cut every ~10 s). Pick the language and model at the top of the tab
-(*💾 Save as Live default* keeps them; the Bangla Whisper is not offered, it is slower than
-speech); the other settings, special and learned words come from the Transcribe tab. Opening
+(*💾 Save as Live default* keeps them; the Bangla Whisper is slower than speech, so pause and
+let the text catch up); the other settings, special and learned words come from the Transcribe tab. Opening
 the tab loads the model (about a minute the first time) and *Record* turns on when it is ready.
 Press *Stop*: the last words are written, and the recording and its text are kept in History;
 *📂 Open in Transcribe* gives Read along, subtitles, AI fix and the rest. Works in phone mode

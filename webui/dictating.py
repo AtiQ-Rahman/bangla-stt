@@ -12,7 +12,7 @@ from stt import history
 from stt.audio import cut_clip, SAMPLE_RATE
 from stt.dictation import Dictation
 from stt.export import bangla_digits
-from stt.transcribe import DEFAULT_MODEL, Segment, Word, WHISPER_MODELS
+from stt.transcribe import Segment, Word
 from stt.worker import WORKER
 from webui.common import check_ram, file_button, language_of, no_file, out_file, runtime, WORK_DIR
 from webui.transcribing import make_job
@@ -26,12 +26,6 @@ def _mic(ready: bool):
     """The microphone, on or off (off while the model loads: then it is an empty box, so say why)."""
     return gr.Audio(interactive=ready, label=MIC if ready else "3. Microphone — ⏳ waits for the model…")
 
-
-def _live_model(model_name: str) -> str:
-    """Bangla is dictated with MMS: the Bangla Whisper is slower than speech on a CPU."""
-    if model_name in WHISPER_MODELS and language_of(model_name) == "Bangla":
-        return DEFAULT_MODEL
-    return model_name
 
 
 def _transcriber(job: dict):
@@ -69,7 +63,6 @@ def _shown(session: dict) -> str:
 def live_ready(model_name, quantize, use_lm):
     """The Live tab was opened: load the model now; Record is off until it is ready, so the
     text appears as the user speaks. Returns (status, mic)."""
-    model_name = _live_model(model_name)
     if runtime.active:  # a recording is being finished, or a transcription runs
         yield ("⏳ Busy: the last recording is still being written (or a transcription runs). "
                "The model loads when you press Record."), _mic(True)
@@ -89,7 +82,6 @@ def live_ready(model_name, quantize, use_lm):
 
 def live_start(text, model_name, quantize, use_lm, hotwords, digits, use_learned, request: gr.Request):
     """Recording started: get the model ready while the user starts speaking."""
-    model_name = _live_model(model_name)
     if runtime.active:
         raise gr.Error("Wait for the transcription to finish (or press Stop) first.")
     job = make_job("live", "", model_name, quantize, use_lm, hotwords, "", "", digits,

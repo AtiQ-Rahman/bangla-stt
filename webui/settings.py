@@ -7,7 +7,7 @@ from pathlib import Path
 import gradio as gr
 
 from stt.correct import DEFAULT_LLM, list_models
-from stt.transcribe import LANGUAGE_MODELS, WHISPER_MODELS
+from stt.transcribe import LANGUAGE_MODELS
 
 FILE = Path(os.environ.get("STT_CONFIG_DIR", Path.home() / ".config" / "bangla-stt")) / "settings.json"
 BUILT_IN = {"language": "Bangla", "bangla_model": LANGUAGE_MODELS["Bangla"][0],
@@ -17,9 +17,9 @@ BUILT_IN = {"language": "Bangla", "bangla_model": LANGUAGE_MODELS["Bangla"][0],
             "watch_folder": str(Path.home() / "bangla-stt-inbox"),
             "live_language": "Bangla", "live_bangla_model": LANGUAGE_MODELS["Bangla"][0],
             "live_english_model": "Whisper small - faster"}
-# Live tab models: not the Bangla Whisper, which is slower than speech on a CPU; for English
-# the small Whisper first (large-v3-turbo falls behind the speaker)
-LIVE_MODELS = {"Bangla": [m for m in LANGUAGE_MODELS["Bangla"] if m not in WHISPER_MODELS],
+# Live tab models: the fast ones first (the Bangla Whisper is slower than speech on a CPU, fine
+# when the speaker waits for the text; for English large-v3-turbo falls behind)
+LIVE_MODELS = {"Bangla": LANGUAGE_MODELS["Bangla"],
                "English": sorted(LANGUAGE_MODELS["English"], key=lambda m: "small" not in m)}
 
 
