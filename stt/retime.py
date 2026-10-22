@@ -14,8 +14,8 @@ def _key(word: str) -> str:
 def retime(text: str, segments: list[Segment]) -> list[Segment]:
     """Segments carrying `text`, timed from the original words they line up with.
 
-    Words are aligned with difflib: matched and re-spelled words take their original's time,
-    a run of replaced words shares the time span of the words it replaced, and added words
+    Words are aligned with difflib: unchanged words keep their own time, a run of replaced
+    (re-spelled, joined, split) words shares the time span of the words it replaced, and added words
     sit at the end of the word before them. Words are grouped back into the original
     segments, so subtitle cues keep their places.
     """
@@ -35,13 +35,15 @@ def retime(text: str, segments: list[Segment]) -> list[Segment]:
     ops = difflib.SequenceMatcher(None, [_key(w.text) for _, w in timed], [_key(w) for w in new],
                                   autojunk=False).get_opcodes()
     for op, i1, i2, j1, j2 in ops:
-        if op in ("equal", "replace") and i2 > i1:
+        if op == "equal":  # same words: each keeps its own time
+            placed += [(timed[i1 + k][0], Word(timed[i1 + k][1].start, timed[i1 + k][1].end, w))
+                       for k, w in enumerate(new[j1:j2])]
+        elif op == "replace" and i2 > i1:
             seg_i, first = timed[i1]
             start, end = first.start, timed[i2 - 1][1].end
             step = (end - start) / (j2 - j1) if j2 > j1 else 0
             for k, w in enumerate(new[j1:j2]):
-                src = timed[min(i1 + k, i2 - 1)][0] if op == "equal" else seg_i
-                placed.append((src, Word(start + k * step, start + (k + 1) * step, w)))
+                placed.append((seg_i, Word(start + k * step, start + (k + 1) * step, w)))
         elif op == "insert":
             prev_seg, prev = placed[-1] if placed else timed[0]
             at = prev.end if placed else prev.start

@@ -54,6 +54,9 @@ CLAUDE_TASKS = {
 }
 
 _last_used = time.monotonic()
+# History folder -> progress of a transcription running right now (any page, Batch or not), so a
+# page that opens it can follow along: {"segments", "frac", "audio_sec", "loading"}.
+LIVE: dict[str, dict] = {}
 _active = 0  # transcriptions in progress; the idle unloader leaves the models alone while > 0
 
 
@@ -222,7 +225,7 @@ def get_youtube(url, cookies_file, use_browser, progress=gr.Progress()):
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return (str(audio), title, f"✅ Got the audio of “{title}”. Listen, trim if you like, then Transcribe.",
-            None)
+            None, url)
 
 
 def get_youtube_video(url, cookies_file, use_browser, progress=gr.Progress()):
@@ -242,13 +245,13 @@ def get_youtube_video(url, cookies_file, use_browser, progress=gr.Progress()):
     size = path.stat().st_size / 1024 / 1024
     save = gr.DownloadButton(f"💾 Save the video ({size:.0f} MB)", value=str(path), visible=True)
     return (str(audio), title, f"✅ Got the video “{title}”. Save it below; its audio is ready too.",
-            save, str(path))
+            save, str(path), url)
 
 
 def get_file_audio(upload, is_video, progress=gr.Progress()):
     """Put the sound of an uploaded video or audio file into the Audio player (as mp3)."""
     if not upload:
-        return gr.skip(), gr.skip(), gr.skip(), gr.skip()
+        return (gr.skip(),) * 5
     progress(0, desc="Reading the file…")
     title = Path(upload).stem
     try:
@@ -256,7 +259,7 @@ def get_file_audio(upload, is_video, progress=gr.Progress()):
     except RuntimeError as e:
         raise gr.Error(f"Could not read the sound of this file: {e}")
     return (str(audio), title, f"✅ Loaded “{title}”. Listen, trim if you like, then Transcribe.",
-            upload if is_video else None)
+            upload if is_video else None, None)
 
 
 def get_video_file(upload, progress=gr.Progress()):
@@ -344,6 +347,8 @@ def _work(job: dict, entry: Path, prior: list[Segment], at: float):
     audio_sec = before + remaining
     segments, resume_at, finished, saved = list(prior), at, False, time.monotonic()
     digits = job.get("bn_digits") and language_of(job["model"]) == "Bangla"
+    live = LIVE[str(entry)] = {"segments": segments, "frac": before / audio_sec, "audio_sec": audio_sec,
+                               "loading": True}
     _active += 1
     try:
         yield segments, before / audio_sec, resume_at, audio_sec, was_loaded
@@ -356,6 +361,7 @@ def _work(job: dict, entry: Path, prior: list[Segment], at: float):
                                   [Word(w.start, w.end, bangla_digits(w.text)) for w in seg.words])
                 segments.append(seg)
                 resume_at = max(resume_at, seg.end)
+            live["frac"], live["loading"] = (before + done / total * remaining) / audio_sec, False
             if time.monotonic() - saved > 10:
                 history.save(entry, job, segments, resume_at, "running")
                 saved = time.monotonic()
@@ -365,6 +371,7 @@ def _work(job: dict, entry: Path, prior: list[Segment], at: float):
         _active -= 1
         _last_used = time.monotonic()
         history.save(entry, job, segments, resume_at, "done" if finished else "stopped")
+        LIVE.pop(str(entry), None)  # after saving: a follower then loads the saved result
 
 
 # run() outputs: transcript, txt, srt, srt view, status, clip, progress bar, partial, segs, entry
@@ -384,12 +391,14 @@ def make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, d
             "bn_digits": bool(digits)}
 
 
-def run(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, video):
+def run(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, video, source):
     if not audio:
         raise gr.Error("Add some audio first: get it from YouTube, upload a video or audio file, or record.")
     job = make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits)
     if video:
         job["video"] = video  # so "video with subtitles" also works when reopened from History
+    if source:
+        job["source"] = source  # the YouTube link, shown when reopened
     check_ram(job["model"], job["quantize"], job["use_lm"])
 
     # Clear the previous result straight away.
@@ -650,6 +659,8 @@ def run_batch(queue, lang_choice, quantize, use_lm, digits, cookies_file, use_br
             job = make_job(str(audio), title, model, quantize, use_lm, "", "", "", digits)
             if item["kind"] == "file" and Path(item["src"]).suffix.lower() in VIDEO_EXT:
                 job["video"] = item["src"]
+            if item["kind"] == "link":
+                job["source"] = item["src"]
             check_ram(model, quantize, job["use_lm"])
             entry = history.create(job)
             item["entry"] = str(entry)
@@ -673,6 +684,16 @@ def history_choices():
     return gr.Dropdown(choices=history.entries(), value=None)
 
 
+def source_link(job: dict, markdown: bool = True) -> str:
+    """' · ▶ YouTube ↗' linking to where the audio came from, if it was a link."""
+    url = job.get("source")
+    if not url:
+        return ""
+    if markdown:
+        return f" · [▶ source ↗]({url})"
+    return f' · <a href="{html.escape(url, quote=True)}" target="_blank" rel="noopener">▶ source ↗</a>'
+
+
 def history_preview(folder):
     if not folder:
         return ""
@@ -681,14 +702,28 @@ def history_preview(folder):
     text = (Path(folder) / "transcript.txt").read_text(encoding="utf-8")
     state = {"done": "✅ finished", "stopped": f"⏸ stopped at {fmt_dur(meta['at'])}",
              "running": f"⏸ interrupted at {fmt_dur(meta['at'])}"}[meta["status"]]
+    if folder in LIVE:
+        state = "⏳ being transcribed now"
     fixed = " · has AI-fixed text" if (Path(folder) / "corrected.txt").exists() else ""
-    return (f"**{job['title']}** · {job['model']} · {state} · {len(segs)} pieces{fixed}\n\n"
-            f"> {text[:400]}{'…' if len(text) > 400 else ''}")
+    return (f"**{job['title']}** · {job['model']} · {state} · {len(segs)} pieces{fixed}"
+            f"{source_link(job)}\n\n> {text[:400]}{'…' if len(text) > 400 else ''}")
 
 
-def history_open(folder, still_running=False):
-    """Load a saved run into the Transcribe tab; an unfinished one can be Resumed (unless the
-    batch is still transcribing it). Returns the OPEN_OUTPUTS values."""
+# What opening something in the dashboard can change; see opened().
+OPEN_FIELDS = ("pages", "audio", "title", "language", "transcript", "txt_btn", "srt_btn", "srt_view",
+               "corrected", "status", "partial", "segs", "entry", "resume_btn", "resume_top",
+               "video_src", "youtube_url", "source", "pbar", "follow", "follow_timer")
+
+
+def opened(**values) -> tuple:
+    """Values for the OPEN_FIELDS outputs; fields not given stay as they are."""
+    assert set(values) <= set(OPEN_FIELDS), set(values) - set(OPEN_FIELDS)
+    return tuple(values.get(name, gr.skip()) for name in OPEN_FIELDS)
+
+
+def history_open(folder, switch_page=True):
+    """Load a saved run into the Transcribe dashboard. An unfinished one can be Resumed; one that
+    is being transcribed right now (e.g. by the Batch) is followed live instead."""
     if not folder:
         raise gr.Error("Pick an entry first.")
     entry = Path(folder)
@@ -696,7 +731,11 @@ def history_open(folder, still_running=False):
     job, segs = meta["job"], meta["segments"]
     if not Path(job["audio"]).exists():
         raise gr.Error("This entry's audio file is missing.")
+    running = folder in LIVE
     text = (entry / "transcript.txt").read_text(encoding="utf-8")
+    if running:
+        segs = list(LIVE[folder]["segments"])
+        text = to_text(segs)
     fixed_path = entry / "corrected.txt"
     fixed = fixed_path.read_text(encoding="utf-8") if fixed_path.exists() else ""
     txt, srt_path = out_file(job["title"], ".txt"), out_file(job["title"], ".srt")
@@ -704,34 +743,69 @@ def history_open(folder, still_running=False):
     srt = to_srt(retime(text, segs)) if segs else ""
     srt_path.write_text(srt, encoding="utf-8")
     partial = None
-    note = f"📂 Opened “{job['title']}”."
-    if still_running:
-        note = (f"📂 “{job['title']}” is still being transcribed by the batch — this is the text so "
-                "far. Open it again when it's done for the full result.")
-    elif meta["status"] != "done":
-        partial = {"job": job, "entry": str(entry), "segments": segs, "at": meta["at"]}
-        note = f"📂 Opened “{job['title']}” — stopped at {fmt_dur(meta['at'])}: press ⏯ Resume to continue."
-    return (gr.Tabs(selected="main"), job["audio"], job["title"], language_of(job["model"]), text,
-            file_button(txt), file_button(srt_path), srt, fixed, note, partial, segs, str(entry),
-            gr.Button(visible=bool(partial)), gr.Button(visible=bool(partial)), job.get("video"),
-            gr.skip())
+    title = job["title"]
+    if running:
+        note = f"📂 “{title}” is being transcribed right now — following it live{source_link(job)}"
+        progress = live_bar(folder)
+    elif meta["status"] == "done":
+        note = f"📂 Opened “{title}”{source_link(job)}"
+        progress = bar(f"✅ “{html.escape(title)}” — finished{source_link(job, False)}", 1, done=True)
+    else:
+        partial = {"job": job, "entry": folder, "segments": segs, "at": meta["at"]}
+        note = (f"📂 Opened “{title}” — stopped at {fmt_dur(meta['at'])}: press ⏯ Resume to "
+                f"continue{source_link(job)}")
+        progress = bar(f"⏸ “{html.escape(title)}” — stopped at {fmt_dur(meta['at'])}, ⏯ Resume continues"
+                       f"{source_link(job, False)}", done=True)
+    return opened(
+        pages=gr.Tabs(selected="main") if switch_page else gr.skip(),
+        audio=job["audio"] if switch_page else gr.skip(), title=title,
+        language=language_of(job["model"]), transcript=text, txt_btn=file_button(txt),
+        srt_btn=file_button(srt_path), srt_view=srt, corrected=fixed, status=note, partial=partial,
+        segs=segs, entry=folder, resume_btn=gr.Button(visible=bool(partial)),
+        resume_top=gr.Button(visible=bool(partial)), video_src=job.get("video"),
+        source=job.get("source"), pbar=progress, follow=folder if running else None,
+        follow_timer=gr.Timer(active=running))
 
 
-def open_queue_item(queue, busy, evt: gr.SelectData):
+def live_bar(folder):
+    live = LIVE[folder]
+    if live.get("loading"):
+        return bar("⏳ Loading the model to transcribe this — the first time takes up to a minute…")
+    frac, sec = live["frac"], live["audio_sec"]
+    return bar(f"⏳ Transcribing in the background… {frac:.0%} · {fmt_dur(frac * sec)} of {fmt_dur(sec)}",
+               frac)
+
+
+def follow_tick(follow):
+    """Timer: refresh a dashboard that follows a running transcription; load the saved result
+    when it ends."""
+    if not follow:
+        return opened(follow_timer=gr.Timer(active=False))
+    if follow not in LIVE:  # finished or stopped
+        return history_open(follow, switch_page=False)
+    segs = list(LIVE[follow]["segments"])
+    return opened(transcript=to_text(segs), srt_view=to_srt(segs), segs=segs, pbar=live_bar(follow))
+
+
+def stop_following():
+    return None, gr.Timer(active=False)
+
+
+def open_queue_item(queue, evt: gr.SelectData):
     """A click on a Batch queue row: open that item in the Transcribe dashboard."""
     item = queue[evt.index[0]]
     if item.get("entry") and Path(item["entry"], "meta.json").exists():
-        running = busy == "batch" and not item["status"].startswith(("✅", "❌"))
-        return history_open(item["entry"], still_running=running)
-    skip = gr.skip()
+        return history_open(item["entry"])
     if item["kind"] == "link":  # not transcribed yet: ready to fetch and run on its own
-        note = (f"🔗 Not transcribed yet — the link is in the YouTube box: press **Audio only** "
-                "(or **Video + audio**), then Transcribe.")
-        return (gr.Tabs(selected="main"),) + (skip,) * 8 + (note,) + (skip,) * 6 + (item["src"],)
-    audio, title, note, video = get_file_audio(item["src"], Path(item["src"]).suffix.lower() in VIDEO_EXT)
-    return ((gr.Tabs(selected="main"), audio, title) + (skip,) * 6
-            + ("🎞️ Not transcribed yet — the file is loaded: press Transcribe.",)
-            + (skip,) * 5 + (video, skip))
+        return opened(pages=gr.Tabs(selected="main"), youtube_url=item["src"], follow=None,
+                      follow_timer=gr.Timer(active=False),
+                      status=("🔗 Not transcribed yet — the link is in the YouTube box: press "
+                              "**Audio only** (or **Video + audio**), then Transcribe."))
+    audio, title, _, video, source = get_file_audio(item["src"],
+                                                    Path(item["src"]).suffix.lower() in VIDEO_EXT)
+    return opened(pages=gr.Tabs(selected="main"), audio=audio, title=title, video_src=video,
+                  source=source, follow=None, follow_timer=gr.Timer(active=False),
+                  status="🎞️ Not transcribed yet — the file is loaded: press Transcribe.")
 
 
 def history_delete(folder):
@@ -949,6 +1023,7 @@ CSS = """
 #batch-table, #batch-table * { font-family: var(--font) !important; }
 #batch-table tbody tr:hover td { background: var(--color-accent-soft); }
 .hint p { margin: 0; color: var(--body-text-color-subdued); }
+.pbar a { color: var(--color-accent); font-weight: 600; }
 """
 
 
@@ -967,6 +1042,9 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     segs = gr.State(None)  # the timed pieces of the current transcript, for subtitles
     entry = gr.State(None)  # the History folder of the current transcript
     video_src = gr.State(None)  # the video the audio came from, for subtitled video export
+    source = gr.State(None)  # the YouTube link the audio came from, kept with the run
+    follow = gr.State(None)  # History folder of a running transcription this page shows live
+    follow_timer = gr.Timer(1.5, active=False)
     batch_queue = gr.State([])  # the Batch tab's items: {id, kind, src, name, status, language}
 
     with gr.Row(elem_id="header"):
@@ -1148,7 +1226,8 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     idle_inputs = [audio, transcript, partial, fix_partial]
 
     transcribe_event = btn.click(busy_buttons("transcribe"), None, controls).then(
-        run, [audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, video_src],
+        run, [audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, video_src,
+              source],
         run_outputs,
         show_progress="hidden")  # our own progress bar above the transcript shows it
     resume_event = resume_btn.click(busy_buttons("transcribe"), None, controls).then(
@@ -1190,15 +1269,20 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                  resume_top, segs, entry, fix_bar, fix_partial, fix_resume_btn], cancels=running)
 
     # Getting audio
-    get_yt.click(get_youtube, [youtube_url, cookies_file, use_browser], [audio, title, status, video_src],
-                 show_progress_on=[audio])
-    youtube_url.submit(get_youtube, [youtube_url, cookies_file, use_browser],
-                       [audio, title, status, video_src], show_progress_on=[audio])
+    got_audio = [audio, title, status, video_src, source]
+    get_yt.click(get_youtube, [youtube_url, cookies_file, use_browser], got_audio, show_progress_on=[audio])
+    youtube_url.submit(get_youtube, [youtube_url, cookies_file, use_browser], got_audio,
+                       show_progress_on=[audio])
     get_yt_video.click(get_youtube_video, [youtube_url, cookies_file, use_browser],
-                       [audio, title, status, save_video, video_src], show_progress_on=[audio])
-    video_btn.upload(get_video_file, video_btn, [audio, title, status, video_src], show_progress_on=[audio])
-    audio_btn.upload(get_audio_file, audio_btn, [audio, title, status, video_src], show_progress_on=[audio])
-    audio.stop_recording(lambda: ("recording", None), None, [title, video_src])
+                       [audio, title, status, save_video, video_src, source], show_progress_on=[audio])
+    video_btn.upload(get_video_file, video_btn, got_audio, show_progress_on=[audio])
+    audio_btn.upload(get_audio_file, audio_btn, got_audio, show_progress_on=[audio])
+    audio.stop_recording(lambda: ("recording", None, None), None, [title, video_src, source])
+    # Starting something new on this page ends following a background transcription.
+    for trigger in (btn.click, resume_btn.click, resume_top.click, clear.click, get_yt.click,
+                    get_yt_video.click, youtube_url.submit, video_btn.upload, audio_btn.upload,
+                    audio.stop_recording):
+        trigger(stop_following, None, [follow, follow_timer])
     # New or trimmed audio: length hint, From..To preview, language, buttons, stale Resume.
     audio.change(show_length, audio, end).then(selected_part, [audio, start, end], clip).then(
         detect_language, [audio, language, transcript], [language, status])
@@ -1230,9 +1314,11 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     pages.select(history_choices, None, history_pick)  # fresh list whenever a page is opened
     history_pick.change(history_preview, history_pick, history_info)
     open_outputs = [pages, audio, title, language, transcript, txt_btn, srt_btn, srt_view, corrected,
-                    status, partial, segs, entry, resume_btn, resume_top, video_src, youtube_url]
+                    status, partial, segs, entry, resume_btn, resume_top, video_src, youtube_url,
+                    source, pbar, follow, follow_timer]  # in OPEN_FIELDS order
     history_open_btn.click(history_open, history_pick, open_outputs)
-    batch_table.select(open_queue_item, [batch_queue, busy], open_outputs)
+    batch_table.select(open_queue_item, batch_queue, open_outputs)
+    follow_timer.tick(follow_tick, follow, open_outputs, show_progress="hidden")
     history_delete_btn.click(history_delete, history_pick, [history_pick, history_info])
 
     # Claude, LLM list, RAM

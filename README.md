@@ -51,7 +51,8 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
   each is detected, and each lands in History. Pressing *Start* again later only runs the
   items that aren't done yet; remove items or empty the queue below it. **Click a row** to open
   that item in the Transcribe dashboard with everything there (subtitles, AI fix, export,
-  Claude, Resume); a not-yet-done link or file is loaded there ready to run on its own.
+  Claude, Resume); one still being transcribed is followed live there, and a not-yet-done link
+  or file is loaded ready to run on its own. Opened items show a link back to their YouTube source.
 - **🕘 History**: every transcription (audio, text, subtitles, AI-fixed text, progress) is kept
   in the `history` folder. Open one to read, download or **Resume** it — even after the app or
   the PC was restarted. Delete entries you no longer need (the audio copies take space).
@@ -74,3 +75,13 @@ docker exec ollama ollama pull gemma3:4b
 
 The fix is word-guarded: the AI may re-spell words and add punctuation, but changes that add,
 drop or reword words, or use another script, are undone. Claude is still clearly better.
+
+## Tests
+
+```bash
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q tests
+```
+
+Tests that load the speech models run only when `STT_SAMPLE_BN` / `STT_SAMPLE_EN` point to a
+Bangla / English speech file.

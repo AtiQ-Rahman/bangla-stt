@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 *cookies*.txt
 history/
+.pytest_cache/
