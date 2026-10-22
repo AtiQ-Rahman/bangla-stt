@@ -21,6 +21,12 @@ def to_vtt(segments: list[Segment]) -> str:
     return "WEBVTT\n\n" + cues
 
 
+def srt_from_cues(cues: list[tuple[float, float, str]]) -> str:
+    """SRT from (start, end, text) cues, e.g. translated ones."""
+    return "\n".join(f"{i}\n{_ts(start)} --> {_ts(end)}\n{text}\n"
+                     for i, (start, end, text) in enumerate(cues, 1))
+
+
 def write_docx(text: str, path: Path, title: str) -> Path:
     """A Word document with the title as heading and one paragraph per transcript paragraph."""
     from docx import Document

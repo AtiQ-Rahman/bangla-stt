@@ -84,3 +84,41 @@ def test_real_transcription_in_the_worker():
         assert len(text) > 50
     finally:
         w.kill()
+
+
+def _orphan_check(requests, replies, cancel):
+    """Start the parent-watch like the real worker, then report our pid and wait."""
+    import os
+    import threading
+    threading.Thread(target=worker_mod._exit_with_parent, daemon=True).start()
+    replies.put(("start", 0, os.getpid()))
+    time.sleep(60)
+
+
+def test_worker_exits_when_its_parent_dies(tmp_path):
+    """A worker whose app was killed (not shut down) ends by itself instead of keeping models."""
+    import os
+    import subprocess
+    import sys
+    script = tmp_path / "parent.py"
+    script.write_text(
+        "import sys, time\n"
+        f"sys.path[:0] = [{str(worker_mod.__file__.rsplit('/stt/', 1)[0])!r}, {str(__file__.rsplit('/', 1)[0])!r}]\n"
+        "from stt.worker import Worker\n"
+        "from test_worker import _orphan_check\n"
+        "w = Worker(target=_orphan_check)\n"
+        "w._start()\n"
+        "print(w._replies.get(timeout=30)[2], flush=True)\n"
+        "time.sleep(60)\n")
+    parent = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.PIPE, text=True)
+    child = int(parent.stdout.readline())
+    parent.kill()  # SIGKILL: no clean-up runs in the parent
+    parent.wait()
+    for _ in range(50):
+        time.sleep(0.2)
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            return
+    os.kill(child, 9)
+    raise AssertionError("the worker outlived its parent")

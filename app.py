@@ -5,7 +5,9 @@ import argparse
 import json
 import logging
 import shutil
+import signal
 import subprocess
+import sys
 import threading
 import traceback
 
@@ -18,7 +20,7 @@ from webui.claude import claude_sent, CLAUDE_TASKS, SEND_TO_CLAUDE_JS
 from webui.common import bar_html, BROWSER, idle_unloader, ram_status, ram_tick
 from webui.controls import (busy_buttons, clear_results, enable_if, idle_buttons, pick_language,
                             stopped, text_choices)
-from webui.exporting import export_files, export_video
+from webui.exporting import export_files, export_translation, export_video
 from webui.fixing import refresh_llms, resume_correct, run_correct
 from webui.look import BEEP_JS, CSS, READALONG_JS, step, THEME
 from webui.opening import (follow_tick, history_choices, history_delete, history_open,
@@ -155,6 +157,12 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                             video_btn_burn = gr.Button("🎬 Make the video with subtitles")
                             export_bar = gr.HTML("", padding=False, visible=False)
                             save_subtitled = gr.DownloadButton("💾 Save video with subtitles", visible=False)
+                            gr.Markdown("**Subtitles in the other language** — Bangla ↔ English with the "
+                                        "local AI (Ollama; see the AI-fixed tab), timed like the originals.")
+                            translate_btn = gr.Button("🌐 Translate the subtitles")
+                            translate_bar = gr.HTML("", padding=False, visible=False)
+                            translate_out = gr.File(label="Translated subtitles", file_count="multiple",
+                                                    visible=False)
                     with gr.Row(elem_classes="downloads"):
                         txt_btn = gr.DownloadButton("⬇ Transcript (.txt)", interactive=False)
                         srt_btn = gr.DownloadButton("⬇ Subtitles (.srt)", interactive=False)
@@ -225,7 +233,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     # Buttons switched together by busy_buttons()/idle_buttons(), then the page's busy state.
     controls = [btn, stop, stop_top, fix_btn, clear, get_yt, get_yt_video, resume_btn, resume_top,
                 batch_btn, batch_stop, batch_add, batch_upload, batch_remove, batch_clear,
-                fix_resume_btn, video_btn_burn, busy]
+                fix_resume_btn, video_btn_burn, translate_btn, busy]
     run_outputs = [transcript, txt_btn, srt_btn, srt_view, status, clip, pbar, partial, segs, entry]
     idle_inputs = [audio, transcript, partial, fix_partial]
 
@@ -244,6 +252,9 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
         run_correct, fix_inputs, fix_outputs, show_progress="hidden")
     fix_resume_event = fix_resume_btn.click(busy_buttons("fix"), None, controls).then(
         resume_correct, fix_inputs, fix_outputs, show_progress="hidden")
+    translate_event = translate_btn.click(busy_buttons("translate"), None, controls).then(
+        export_translation, [export_which, transcript, corrected, segs, title, language, llm],
+        [translate_bar, translate_out], show_progress="hidden")
     export_event = video_btn_burn.click(busy_buttons("export"), None, controls).then(
         export_video, [export_which, transcript, corrected, segs, title, video_src],
         [export_bar, save_subtitled], show_progress="hidden")
@@ -256,15 +267,17 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     batch_remove.click(remove_items, [batch_pick, batch_queue], [batch_queue, batch_table, batch_pick])
     batch_clear.click(clear_queue, None, [batch_queue, batch_table, batch_pick, batch_bar])
     running = [transcribe_event, resume_event, resume_top_event, correct_event, fix_resume_event,
-               export_event, batch_event]
+               export_event, translate_event, batch_event]
     # When long work ends well (not stopped, no error): chime, and notify if the page is hidden.
     # Starting it is a click, the moment a browser allows asking for notification permission.
     finished = [(transcribe_event, status, "Transcription finished"),
                 (resume_event, status, "Transcription finished"),
                 (resume_top_event, status, "Transcription finished"),
                 (correct_event, fix_bar, "AI fix finished"), (fix_resume_event, fix_bar, "AI fix finished"),
-                (export_event, export_bar, "Video with subtitles ready"), (batch_event, batch_bar, "Batch finished")]
-    for start_button in (btn, resume_btn, resume_top, fix_btn, fix_resume_btn, video_btn_burn, batch_btn):
+                (export_event, export_bar, "Video with subtitles ready"), (batch_event, batch_bar, "Batch finished"),
+                (translate_event, translate_bar, "Translated subtitles ready")]
+    for start_button in (btn, resume_btn, resume_top, fix_btn, fix_resume_btn, video_btn_burn,
+                         translate_btn, batch_btn):
         start_button.click(None, js="() => window.sttAskNotify && window.sttAskNotify()")
     # Read along: render when its tab is opened, and after a run or an open brings a new result.
     readalong_inputs = [transcript, segs, entry]
@@ -387,6 +400,8 @@ def main():
     args = parser.parse_args()
 
     logging.getLogger("uvicorn.error").addFilter(_HideCancelRace())
+    # A plain `kill` should end the app like Ctrl+C does: exit handlers then stop the worker.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     history.HISTORY_DIR.mkdir(exist_ok=True)
     options = {}
     if args.phone:

@@ -5,6 +5,7 @@ The speech models are big and CPU-bound. In their own process they can't freeze 
 unloading frees all their memory, and running out of memory kills only the worker.
 """
 import multiprocessing as mp
+import os
 import queue
 import signal
 import sys
@@ -20,9 +21,20 @@ class WorkerDied(RuntimeError):
     """The worker process ended in the middle of a job (most likely out of memory)."""
 
 
+def _exit_with_parent():
+    """End this process when the app that started it is gone, however it ended (killed,
+    crashed), so the models never linger in memory."""
+    parent = os.getppid()
+    while True:
+        time.sleep(2)
+        if os.getppid() != parent:
+            os._exit(0)
+
+
 def _serve(requests, replies, cancel):
     """Worker process: run transcribe() for each request, streaming the pieces back."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)  # Ctrl+C is for the app; it ends us
+    threading.Thread(target=_exit_with_parent, daemon=True).start()
     from stt.audio import load_audio
     from stt.transcribe import transcribe
 

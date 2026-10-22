@@ -7,14 +7,14 @@ from webui.common import bar, fmt_dur, no_file
 
 
 def busy_buttons(kind):
-    """While transcribing, fixing, exporting or batching: only Stop can be pressed."""
+    """While transcribing, fixing, exporting, translating or batching: only Stop can be pressed."""
     def busy():
         off = gr.Button(interactive=False)
         return (gr.Button("⏳ Working…", interactive=False), gr.Button(interactive=True),
                 gr.Button(visible=kind == "transcribe"), off, off, off, off,
                 gr.Button(visible=False), gr.Button(visible=False), off, gr.Button(interactive=True),
                 *(gr.update(interactive=False),) * 4,
-                gr.Button(visible=False), off, kind)
+                gr.Button(visible=False), off, off, kind)
     return busy
 
 
@@ -25,7 +25,7 @@ def idle_buttons(audio, text, partial, fix_partial):
             gr.Button(visible=False), gr.Button(interactive=bool((text or "").strip())), on, on, on,
             gr.Button(visible=bool(partial)), gr.Button(visible=bool(partial)), on,
             gr.Button(interactive=False), *(gr.update(interactive=True),) * 4,
-            gr.Button(visible=bool(fix_partial)), on, "")
+            gr.Button(visible=bool(fix_partial)), on, on, "")
 
 
 def stopped(audio, text, partial, fix_partial, kind):

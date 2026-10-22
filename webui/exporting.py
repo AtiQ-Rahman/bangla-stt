@@ -5,10 +5,13 @@ from pathlib import Path
 
 import gradio as gr
 
-from stt.export import burn_subtitles, to_vtt, write_docx
+from stt.correct import is_loaded as llm_is_loaded, list_models
+from stt.export import burn_subtitles, srt_from_cues, to_vtt, write_docx
 from stt.retime import retime
-from stt.transcribe import to_srt
-from webui.common import bar, out_file, time_left, WORK_DIR
+from stt.transcribe import _cues, to_srt
+from stt.translate import translate_lines
+from stt.worker import WORKER
+from webui.common import bar, LLM_RAM_GB, mem_gb, out_file, runtime, time_left, WORK_DIR
 
 
 def export_files(which, transcript_text, fixed_text, segs, title):
@@ -50,3 +53,39 @@ def export_video(which, transcript_text, fixed_text, segs, title, video_src):
     size = out.stat().st_size / 1024 / 1024
     yield (bar("✅ Video ready", 1, done=True),
            gr.DownloadButton(f"💾 Save video with subtitles ({size:.0f} MB)", value=str(out), visible=True))
+
+
+def export_translation(which, transcript_text, fixed_text, segs, title, language, llm):
+    """Subtitles in the other language (Bangla <-> English) with the local LLM, timed like the
+    originals: a translated .srt and a two-language one (original above, translation below)."""
+    text = fixed_text if which.startswith("AI") else transcript_text
+    if not segs or not (text or "").strip():
+        raise gr.Error("Transcribe something first.")
+    if not list_models():
+        raise gr.Error("Ollama is not running. Start it with `docker start ollama` (see README).")
+    if runtime.active:
+        raise gr.Error("Wait for the transcription to finish (or press Stop) first.")
+    WORKER.kill()  # the speech models and the LLM together don't fit in 16 GB RAM
+    avail, _ = mem_gb()
+    if avail < LLM_RAM_GB and not llm_is_loaded(llm):
+        raise gr.Error(f"Not enough free RAM for the LLM ({avail:.1f} GB free, ~{LLM_RAM_GB:.0f} GB needed).")
+    target = "English" if language == "Bangla" else "Bangla"
+    cues = _cues(retime(text, segs))
+    yield bar(f"⏳ Translating the subtitles into {target}…"), gr.skip()
+    first, done = None, []
+    try:
+        for done in translate_lines([c[2] for c in cues], language, target, llm):
+            frac = len(done) / len(cues)
+            first = first or (time.monotonic(), frac)
+            yield bar(f"⏳ Translating into {target}… {len(done)} of {len(cues)} lines"
+                      f"{time_left(first, frac)}", frac), gr.skip()
+    except Exception as e:
+        raise gr.Error(f"Translation failed: {e}")
+    translated = out_file(title, f" ({target}).srt")
+    translated.write_text(srt_from_cues([(s, e, t) for (s, e, _), t in zip(cues, done)]), encoding="utf-8")
+    both = out_file(title, " (two languages).srt")
+    both.write_text(srt_from_cues([(s, e, f"{o}\n{t}") for (s, e, o), t in zip(cues, done)]),
+                    encoding="utf-8")
+    yield (bar(f"✅ {target} subtitles ready ({len(cues)} lines)", 1, done=True),
+           gr.File(value=[str(translated), str(both)], visible=True))
+

@@ -34,3 +34,14 @@ def test_whisper_words_keep_their_spacing():
 
 def test_bangla_digits():
     assert bangla_digits("20 অক্টোবর 2026") == "২০ অক্টোবর ২০২৬"
+
+
+def test_translation_reply_parsing():
+    from stt.translate import _parse
+    assert _parse("1. Hello\n2) World\n", 2) == ["Hello", "World"]
+    assert _parse("1. Hello\nWorld", 2) is None  # a missing number: redo line by line
+
+
+def test_srt_from_cues():
+    from stt.export import srt_from_cues
+    assert srt_from_cues([(0, 1.5, "Hi")]) == "1\n00:00:00,000 --> 00:00:01,500\nHi\n"

@@ -32,8 +32,9 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
 3. **Use the text**:
    - *AI-fixed (local)*: punctuation and spelling with a free local model (below); it can be
      stopped and resumed too, and gives fixed .txt and .srt.
-   - *Export*: `.vtt` subtitles, a Word `.docx`, and the **video with subtitles burned in**
-     (for audio that came from a video).
+   - *Export*: `.vtt` subtitles, a Word `.docx`, the **video with subtitles burned in** (for
+     audio that came from a video), and **subtitles in the other language** (Bangla ↔ English,
+     with the local AI): a translated `.srt` and a two-language one, timed like the originals.
    - **Send to Claude** with a task (fix, summarise, translate, or your own): the prompt and
      text are copied and claude.ai opens — paste with Ctrl+V. The Claude in Chrome extension
      can also read the transcript on this page directly.
