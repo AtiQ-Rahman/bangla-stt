@@ -43,6 +43,11 @@ def _serve(requests, replies, cancel):
         cancel.clear()
         try:
             wav = load_audio(args["path"], args["load_from"], args["end"])
+            if args.get("task") == "speakers":
+                from stt.speakers import diarize
+                replies.put(("speakers", job_id, diarize(wav, offset=args["load_from"])))
+                replies.put(("end", job_id, None))
+                continue
             replies.put(("start", job_id, len(wav)))
             stopped = None
             if len(wav):
@@ -98,14 +103,29 @@ class Worker:
                    ) -> Iterator[tuple[str, object]]:
         """Yields ("start", samples) once the audio is read, then ("piece", (done, total, segment))
         for each piece, and ("cancelled", None) last if cancel() stopped it."""
+        yield from self._job({"path": str(path), "load_from": load_from, "end": end, "model": model,
+                              "quantize": quantize, "use_lm": use_lm, "words": words,
+                              "keep_from_sec": keep_from_sec}, model, quantize)
+
+    def speakers(self, path, start, end) -> list[tuple[float, float, int]] | None:
+        """Who speaks when in path from start to end: (start, end, speaker) turns; None if Stop
+        ended it."""
+        for kind, value in self._job({"task": "speakers", "path": str(path), "load_from": start or 0.0,
+                                      "end": end}, None, None):
+            if kind == "speakers":
+                return value
+            if kind == "cancelled":
+                return None
+        return []
+
+    def _job(self, args, model, quantize) -> Iterator[tuple[str, object]]:
+        """Send one request to the worker and yield its replies until it ends."""
         with self._lock:
             if not self.alive():
                 self._start()
             job_id = next(self._ids)
-            self._requests.put((job_id, {"path": str(path), "load_from": load_from, "end": end,
-                                         "model": model, "quantize": quantize, "use_lm": use_lm,
-                                         "words": words, "keep_from_sec": keep_from_sec}))
-            finished = False
+            self._requests.put((job_id, args))
+            finished, cancelled_at = False, None
             try:
                 while True:
                     try:
@@ -115,6 +135,15 @@ class Worker:
                             self._proc = None
                             raise WorkerDied("the transcription process stopped unexpectedly "
                                              "(probably out of memory)")
+                        # Stop pressed during one long step (finding speakers, loading a model):
+                        # if the worker doesn't end the job soon, end the worker.
+                        if self._cancel.is_set():
+                            cancelled_at = cancelled_at or time.monotonic()
+                            if time.monotonic() - cancelled_at > STOP_GRACE_SEC:
+                                self.kill()
+                                finished = True
+                                yield "cancelled", None
+                                return
                         continue
                     if reply_id != job_id:  # left over from a job that was stopped
                         continue
@@ -126,7 +155,7 @@ class Worker:
                     if kind == "error":
                         finished = True
                         raise RuntimeError(value)
-                    if kind == "piece":
+                    if kind == "piece" and model:
                         self.loaded = (model, quantize)
                     yield kind, value
             finally:

@@ -152,6 +152,9 @@ CSS = """
 .dark .ra-text .w.now { background: var(--primary-800); }
 .ra-text .ts { cursor: pointer; font-family: var(--font-mono); font-size: 0.78rem; margin-right: 8px;
                color: var(--body-text-color-subdued); }
+.ra-text .spk { display: inline-block; font-size: 0.8rem; font-weight: 600; margin: 0 6px 0 2px;
+                padding: 0 8px; border-radius: 999px; background: var(--color-accent-soft);
+                color: var(--color-accent); }
 .ra-empty { padding: 24px; text-align: center; color: var(--body-text-color-subdued); }
 #batch-table tbody tr { cursor: pointer; }
 #batch-table, #batch-table * { font-family: var(--font) !important; }

@@ -11,6 +11,7 @@ from stt.export import bangla_digits
 from stt.langid import detect
 from stt.retime import retime
 from stt.transcribe import Segment, to_srt, to_text, Word
+from stt.speakers import label
 from stt.worker import WORKER, WorkerDied
 from webui.common import (bar, check_ram, file_button, fmt_dur, language_of, LIVE, no_file,
                           out_file, parse_time, runtime, time_left, WORK_DIR)
@@ -20,8 +21,9 @@ def _work(job: dict, entry: Path, prior: list[Segment], at: float):
     """Transcribe job["audio"] from `at` seconds to job["end"], after the segments in prior,
     saving progress to the history entry (every 10 s, and when it ends or is stopped).
 
-    Yields (segments, fraction done, resume point, length of the range, model was loaded):
-    once before the model loads, then after every piece. The work itself runs in the worker
+    Yields (segments, fraction done, resume point, length of the range, model was loaded, phase):
+    once before the model loads, then after every piece ("transcribing"), and once more before
+    the speakers are found if job["speakers"] ("speakers"). The work itself runs in the worker
     process (stt.worker).
     """
     begin = job["start"] or 0.0
@@ -45,7 +47,7 @@ def _work(job: dict, entry: Path, prior: list[Segment], at: float):
                                "loading": True}
     runtime.active += 1
     try:
-        yield segments, before / audio_sec, resume_at, audio_sec, was_loaded
+        yield segments, before / audio_sec, resume_at, audio_sec, was_loaded, "loading"
         for kind, piece in pieces:
             if kind == "cancelled":  # Stop: the worker ended the job early
                 break
@@ -60,9 +62,18 @@ def _work(job: dict, entry: Path, prior: list[Segment], at: float):
             if time.monotonic() - saved > 10:
                 history.save(entry, job, segments, resume_at, "running")
                 saved = time.monotonic()
-            yield segments, (before + done / total * remaining) / audio_sec, resume_at, audio_sec, was_loaded
+            yield (segments, (before + done / total * remaining) / audio_sec, resume_at, audio_sec,
+                   was_loaded, "transcribing")
         else:
             finished = True
+        if finished and job.get("speakers"):  # over the whole range, so numbers stay the same
+            live["phase"] = "speakers"
+            yield segments, 1.0, resume_at, audio_sec, was_loaded, "speakers"
+            turns = WORKER.speakers(job["audio"], begin, job["end"])
+            if turns is None:  # Stop
+                finished = False
+            else:
+                segments[:] = label(segments, turns)
     except WorkerDied as e:
         raise gr.Error(f"Transcription failed: {e}. The text so far is kept; ⏯ Resume continues.")
     except RuntimeError as e:
@@ -81,7 +92,7 @@ def stage(message: str) -> tuple:
     return (gr.skip(),) * 4 + (message, gr.skip(), bar(message)) + (gr.skip(),) * 3
 
 
-def make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits):
+def make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers=False):
     start, end = parse_time(start), parse_time(end)
     if start and end and end <= start:
         raise gr.Error("End time must be after start time.")
@@ -89,13 +100,14 @@ def make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, d
     use_lm = use_lm and language_of(model_name) == "Bangla"  # Whisper has its own
     return {"audio": audio, "title": title or Path(audio).stem, "model": model_name,
             "quantize": quantize, "use_lm": use_lm, "words": words, "start": start, "end": end,
-            "bn_digits": bool(digits)}
+            "bn_digits": bool(digits), "speakers": bool(speakers)}
 
 
-def run(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, video, source):
+def run(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers, video,
+        source):
     if not audio:
         raise gr.Error("Add some audio first: get it from YouTube, upload a video or audio file, or record.")
-    job = make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits)
+    job = make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers)
     if video:
         job["video"] = video  # so "video with subtitles" also works when reopened from History
     if source:
@@ -142,7 +154,10 @@ def _job(job, entry, prior, at):
             pass
     t0 = first = None
     segments, audio_sec, was_loaded = list(prior), 0.0, True
-    for segments, frac, resume_at, audio_sec, was_loaded in _work(job, entry, prior, at):
+    for segments, frac, resume_at, audio_sec, was_loaded, phase in _work(job, entry, prior, at):
+        if phase == "speakers":
+            yield stage("⏳ Finding who speaks when (speaker labels)…")
+            continue
         if t0 is None:  # before the model loads
             t0 = time.monotonic()
             if not was_loaded:

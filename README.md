@@ -49,6 +49,7 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
 | Bangla language model | fixes many spellings; 3.5 GB download on first use |
 | Bangla digits | writes ২০ instead of 20 |
 | Names or special words | the decoder prefers their spelling |
+| Label who is speaking | "Speaker 1 / Speaker 2 …" in the text, subtitles and Read along (models are downloaded once, ~35 MB); takes about a quarter longer |
 | Use my browser login | if YouTube says "confirm you're not a bot", yt-dlp retries with your browser's YouTube cookies (they stay on this PC) |
 
 ## Batch and History

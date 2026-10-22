@@ -18,3 +18,5 @@ kenlm @ https://github.com/kpu/kenlm/archive/master.zip
 faster-whisper==1.2.1
 # Word export
 python-docx==1.2.0
+# Speaker labels (who speaks when)
+sherpa-onnx==1.13.8

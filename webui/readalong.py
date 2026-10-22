@@ -20,9 +20,15 @@ def readalong(text, segs, entry):
     audio = history.load(Path(entry))["job"]["audio"]
     timed = retime(text, segs) if (text or "").strip() else segs
     paragraphs = []
+    speaker = None
     for seg in timed:
-        words = " ".join(f'<span class="w" data-s="{w.start:.2f}">{html.escape(w.text.strip())}</span>'
-                         for w in seg.words) or html.escape(seg.text)
+        parts = []
+        for w in seg.words:
+            if w.speaker is not None and w.speaker != speaker:  # a new speaker's turn
+                parts.append(f'<span class="spk">Speaker {w.speaker}</span>')
+                speaker = w.speaker
+            parts.append(f'<span class="w" data-s="{w.start:.2f}">{html.escape(w.text.strip())}</span>')
+        words = " ".join(parts) or html.escape(seg.text)
         paragraphs.append(f'<p><span class="ts" data-s="{seg.start:.2f}">{fmt_dur(seg.start)}</span>'
                           f"{words}</p>")
     src = "/gradio_api/file=" + urllib.parse.quote(audio)

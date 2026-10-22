@@ -45,3 +45,26 @@ def test_translation_reply_parsing():
 def test_srt_from_cues():
     from stt.export import srt_from_cues
     assert srt_from_cues([(0, 1.5, "Hi")]) == "1\n00:00:00,000 --> 00:00:01,500\nHi\n"
+
+
+def test_speaker_turns_in_text_and_subtitles():
+    words = [Word(0, 1, "hello", 1), Word(1, 2, "there", 1), Word(2.2, 3, "hi", 2), Word(3, 4, "back", 2),
+             Word(4.1, 5, "ok", 1)]
+    segs = [Segment(0, 5, "hello there hi back ok", words)]
+    assert to_text(segs) == "Speaker 1: hello there\n\nSpeaker 2: hi back\n\nSpeaker 1: ok"
+    srt = to_srt(segs)
+    assert srt.count("-->") == 3 and "Speaker 2: hi back" in srt
+
+
+def test_label_assigns_words_to_turns():
+    from stt.speakers import label
+    segs = [Segment(0, 6, "a b c", [Word(0, 1, "a"), Word(2, 3, "b"), Word(4.5, 5.5, "c")])]
+    out = label(segs, [(0, 2.5, 1), (4, 6, 2)])
+    assert [w.speaker for w in out[0].words] == [1, 1, 2]
+
+
+def test_retime_ignores_speaker_labels():
+    from stt.retime import retime
+    segs = [Segment(0, 2, "hi there", [Word(0, 1, "hi", 1), Word(1, 2, "there", 1)])]
+    out = retime("Speaker 1: Hi there.", segs)
+    assert [w.text for w in out[0].words] == ["Hi", "there."] and out[0].words[0].speaker == 1

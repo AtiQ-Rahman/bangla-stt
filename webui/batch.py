@@ -53,7 +53,7 @@ def clear_queue():
     return ([],) + queue_views([]) + (gr.HTML(visible=False),)
 
 
-def run_batch(queue, lang_choice, quantize, use_lm, digits, cookies_file, use_browser):
+def run_batch(queue, lang_choice, quantize, use_lm, digits, speakers, cookies_file, use_browser):
     """Transcribe the queued items that aren't done yet, one after another; each goes to History."""
     queue = [dict(item) for item in queue]  # this run's copy; yielded back to the page
     todo = [item for item in queue if item["status"] != "✅ done"]
@@ -82,7 +82,7 @@ def run_batch(queue, lang_choice, quantize, use_lm, digits, cookies_file, use_br
             language = lang_choice if lang_choice != "Auto" else detect(audio)[0]
             item["language"] = language
             model = LANGUAGE_MODELS[language][0]
-            job = make_job(str(audio), title, model, quantize, use_lm, "", "", "", digits)
+            job = make_job(str(audio), title, model, quantize, use_lm, "", "", "", digits, speakers)
             if item["kind"] == "file" and Path(item["src"]).suffix.lower() in VIDEO_EXT:
                 job["video"] = item["src"]
             if item["kind"] == "link":
@@ -91,7 +91,10 @@ def run_batch(queue, lang_choice, quantize, use_lm, digits, cookies_file, use_br
             entry = history.create(job)
             item["entry"] = str(entry)
             yield show("loading the model…")
-            for _, frac, _, _, _ in _work(job, entry, [], 0.0):
+            for _, frac, _, _, _, phase in _work(job, entry, [], 0.0):
+                if phase == "speakers":
+                    yield show("finding speakers…", frac)
+                    continue
                 first = first or (time.monotonic(), (i + frac) / len(todo))
                 yield show(f"transcribing {frac:.0%}", frac)
             item["status"] = "✅ done"

@@ -120,6 +120,8 @@ def live_bar(folder):
     live = LIVE[folder]
     if live.get("loading"):
         return bar("⏳ Loading the model to transcribe this — the first time takes up to a minute…")
+    if live.get("phase") == "speakers":
+        return bar("⏳ Finding who speaks when (speaker labels)…")
     frac, sec = live["frac"], live["audio_sec"]
     return bar(f"⏳ Transcribing in the background… {frac:.0%} · {fmt_dur(frac * sec)} of {fmt_dur(sec)}",
                frac)

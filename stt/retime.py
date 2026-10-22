@@ -5,6 +5,7 @@ import re
 from stt.transcribe import Segment, Word
 
 _PUNCT = re.compile(r"^[\W_]+|[\W_]+$")
+_SPEAKER = re.compile(r"(?m)^\s*Speaker \d+:\s*")  # the labels to_text() puts on speaker turns
 
 
 def _key(word: str) -> str:
@@ -30,24 +31,25 @@ def retime(text: str, segments: list[Segment]) -> list[Segment]:
                       for k, p in enumerate(parts)]
     if not timed:
         return []
-    new = text.split()
+    new = _SPEAKER.sub("", text).split()
     placed: list[tuple[int, Word]] = []
     ops = difflib.SequenceMatcher(None, [_key(w.text) for _, w in timed], [_key(w) for w in new],
                                   autojunk=False).get_opcodes()
     for op, i1, i2, j1, j2 in ops:
         if op == "equal":  # same words: each keeps its own time
-            placed += [(timed[i1 + k][0], Word(timed[i1 + k][1].start, timed[i1 + k][1].end, w))
+            placed += [(timed[i1 + k][0], Word(timed[i1 + k][1].start, timed[i1 + k][1].end, w,
+                                               timed[i1 + k][1].speaker))
                        for k, w in enumerate(new[j1:j2])]
         elif op == "replace" and i2 > i1:
             seg_i, first = timed[i1]
             start, end = first.start, timed[i2 - 1][1].end
             step = (end - start) / (j2 - j1) if j2 > j1 else 0
             for k, w in enumerate(new[j1:j2]):
-                placed.append((seg_i, Word(start + k * step, start + (k + 1) * step, w)))
+                placed.append((seg_i, Word(start + k * step, start + (k + 1) * step, w, first.speaker)))
         elif op == "insert":
             prev_seg, prev = placed[-1] if placed else timed[0]
             at = prev.end if placed else prev.start
-            placed += [(prev_seg, Word(at, at, w)) for w in new[j1:j2]]
+            placed += [(prev_seg, Word(at, at, w, prev.speaker)) for w in new[j1:j2]]
     out: list[Segment] = []
     for seg_i, word in placed:
         if out and out[-1].start == segments[seg_i].start:

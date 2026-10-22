@@ -89,6 +89,9 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                         use_lm = gr.Checkbox(value=True, label="Bangla spell-fixing language model "
                                                                "(3.5 GB download on first use)")
                         digits = gr.Checkbox(value=False, label="Write numbers in Bangla digits (২০, not 20)")
+                        speakers = gr.Checkbox(
+                            value=False, label="Label who is speaking (Speaker 1, 2 …) — takes about a "
+                                               "quarter longer; for interviews and talk shows")
                         hotwords = gr.Textbox(
                             label="Names or special words in the audio (optional, comma separated)",
                             placeholder="e.g. রাজশাহী, তারেক রহমান, প্রথম আলো",
@@ -238,8 +241,8 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     idle_inputs = [audio, transcript, partial, fix_partial]
 
     transcribe_event = btn.click(busy_buttons("transcribe"), None, controls).then(
-        run, [audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, video_src,
-              source],
+        run, [audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers,
+              video_src, source],
         run_outputs,
         show_progress="hidden")  # our own progress bar above the transcript shows it
     resume_event = resume_btn.click(busy_buttons("transcribe"), None, controls).then(
@@ -259,7 +262,8 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
         export_video, [export_which, transcript, corrected, segs, title, video_src],
         [export_bar, save_subtitled], show_progress="hidden")
     batch_event = batch_btn.click(busy_buttons("batch"), None, controls).then(
-        run_batch, [batch_queue, batch_lang, quantize, use_lm, digits, cookies_file, use_browser],
+        run_batch, [batch_queue, batch_lang, quantize, use_lm, digits, speakers, cookies_file,
+                    use_browser],
         [batch_queue, batch_table, batch_bar], show_progress="hidden")
     for trigger in (batch_add.click, batch_link.submit):
         trigger(add_links, [batch_link, batch_queue], [batch_link, batch_queue, batch_table, batch_pick])

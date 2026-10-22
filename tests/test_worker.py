@@ -14,6 +14,9 @@ def _fake_serve(requests, replies, cancel):
     while True:
         job_id, args = requests.get()
         cancel.clear()
+        if args.get("task") == "speakers":  # one long step that can't stop by itself
+            time.sleep(30)
+            continue
         replies.put(("start", job_id, 16000 * 5))
         if args["model"] == "die":
             raise SystemExit(1)
@@ -122,3 +125,13 @@ def test_worker_exits_when_its_parent_dies(tmp_path):
             return
     os.kill(child, 9)
     raise AssertionError("the worker outlived its parent")
+
+
+def test_stop_while_finding_speakers_kills_the_worker(monkeypatch):
+    import threading
+    monkeypatch.setattr(worker_mod, "STOP_GRACE_SEC", 0.5)
+    w = Worker(target=_fake_serve)
+    threading.Timer(1.0, w.cancel).start()  # Stop pressed a second in
+    t = time.monotonic()
+    assert w.speakers("x.wav", 0, None) is None
+    assert time.monotonic() - t < 4 and not w.alive()

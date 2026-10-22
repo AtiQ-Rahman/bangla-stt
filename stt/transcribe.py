@@ -62,6 +62,7 @@ class Word:
     start: float
     end: float
     text: str
+    speaker: int | None = None  # 1, 2, … when speakers were labelled (stt.speakers)
 
 
 @dataclass
@@ -269,9 +270,21 @@ def _transcribe_whisper(wav: np.ndarray, model_name: str, offset: float, hotword
 SENTENCE_END = (".", "?", "!", "।", "॥")
 
 
+def has_speakers(segments: list[Segment]) -> bool:
+    return any(w.speaker is not None for seg in segments for w in seg.words)
+
+
 def to_text(segments: list[Segment], pause_sec: float = 1.5, max_words: int = 60) -> str:
     """Join pieces into paragraphs: a new one after a pause, or once a paragraph is long
-    (at a sentence end when there is punctuation, as with Whisper)."""
+    (at a sentence end when there is punctuation, as with Whisper). With speakers labelled,
+    one paragraph per turn: "Speaker 1: …"."""
+    if has_speakers(segments):
+        turns: list[tuple[int | None, list[Word]]] = []
+        for w in (w for seg in segments for w in seg.words):
+            if not turns or turns[-1][0] != w.speaker:
+                turns.append((w.speaker, []))
+            turns[-1][1].append(w)
+        return "\n\n".join(f"Speaker {speaker}: {_join(words)}" for speaker, words in turns)
     paragraphs: list[list[str]] = []
     prev = None
     for seg in segments:
@@ -302,8 +315,19 @@ def _ts(sec: float) -> str:
 
 def _cues(segments: list[Segment], max_sec: float = 6.0, max_words: int = 12,
           max_gap: float = 0.8) -> list[tuple[float, float, str]]:
-    """Group words into subtitle-sized cues, breaking on length, word count or pauses."""
+    """Group words into subtitle-sized cues, breaking on length, word count, pauses or a new
+    speaker; a speaker's first cue starts with "Speaker N: "."""
     cues = []
+    last_speaker = None
+
+    def add(words: list[Word]):
+        nonlocal last_speaker
+        text, speaker = _join(words), words[0].speaker
+        if speaker is not None and speaker != last_speaker:
+            text = f"Speaker {speaker}: {text}"
+        last_speaker = speaker
+        cues.append((words[0].start, words[-1].end, text))
+
     for seg in segments:
         if not seg.words:
             cues.append((seg.start, seg.end, seg.text))
@@ -311,11 +335,11 @@ def _cues(segments: list[Segment], max_sec: float = 6.0, max_words: int = 12,
         cur: list[Word] = []
         for w in seg.words:
             if cur and (w.end - cur[0].start > max_sec or len(cur) >= max_words
-                        or w.start - cur[-1].end > max_gap):
-                cues.append((cur[0].start, cur[-1].end, _join(cur)))
+                        or w.start - cur[-1].end > max_gap or w.speaker != cur[-1].speaker):
+                add(cur)
                 cur = []
             cur.append(w)
-        cues.append((cur[0].start, cur[-1].end, _join(cur)))
+        add(cur)
     return cues
 
 
