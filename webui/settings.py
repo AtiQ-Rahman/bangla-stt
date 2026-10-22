@@ -7,14 +7,19 @@ from pathlib import Path
 import gradio as gr
 
 from stt.correct import DEFAULT_LLM, list_models
-from stt.transcribe import LANGUAGE_MODELS
+from stt.transcribe import LANGUAGE_MODELS, WHISPER_MODELS
 
 FILE = Path(os.environ.get("STT_CONFIG_DIR", Path.home() / ".config" / "bangla-stt")) / "settings.json"
 BUILT_IN = {"language": "Bangla", "bangla_model": LANGUAGE_MODELS["Bangla"][0],
             "english_model": LANGUAGE_MODELS["English"][0], "quantize": True, "use_lm": True,
             "digits": False, "speakers": False, "use_learned": True, "use_browser": True,
             "claude_task": "Fix spelling & punctuation", "llm": DEFAULT_LLM, "batch_lang": "Auto",
-            "watch_folder": str(Path.home() / "bangla-stt-inbox")}
+            "watch_folder": str(Path.home() / "bangla-stt-inbox"),
+            "live_language": "Bangla", "live_bangla_model": LANGUAGE_MODELS["Bangla"][0],
+            "live_english_model": LANGUAGE_MODELS["English"][0]}
+# Live tab models: not the Bangla Whisper, which is slower than speech on a CPU
+LIVE_MODELS = {"Bangla": [m for m in LANGUAGE_MODELS["Bangla"] if m not in WHISPER_MODELS],
+               "English": LANGUAGE_MODELS["English"]}
 
 
 def load() -> dict:
@@ -50,6 +55,31 @@ def apply_defaults():
     models = LANGUAGE_MODELS[v["language"]]
     return (v["language"], gr.Radio(choices=models, value=model_for(v["language"])), v["quantize"],
             v["use_lm"], v["digits"], v["speakers"], v["use_learned"], v["use_browser"], v["claude_task"], v["batch_lang"])
+
+
+def live_model_for(language: str) -> str:
+    """The Live tab's default model for a language: the saved one if it is still offered."""
+    choice = load()[f"live_{language.lower()}_model"]
+    return choice if choice in LIVE_MODELS[language] else LIVE_MODELS[language][0]
+
+
+def live_models(language):
+    """The Live language changed: its models, with the saved one picked."""
+    return gr.Radio(choices=LIVE_MODELS[language], value=live_model_for(language))
+
+
+def apply_live_defaults():
+    """Page open: the Live tab's own language and model."""
+    language = load()["live_language"]
+    return language, live_models(language)
+
+
+def save_live_defaults(language, model):
+    values = load()
+    values.update({"live_language": language, f"live_{language.lower()}_model": model})
+    FILE.parent.mkdir(parents=True, exist_ok=True)
+    FILE.write_text(json.dumps(values, ensure_ascii=False, indent=2), encoding="utf-8")
+    return f"✅ Saved as the Live default ({language}: {model})."
 
 
 def remember(key: str, value):

@@ -69,11 +69,13 @@ are stored in `~/.config/bangla-stt/settings.json` (learned words in `dictionary
 ## Live dictation
 
 **🎤 Live**: press *Record* and speak — the text appears a few seconds after each pause (a long
-stretch without pauses is cut every ~10 s). It uses the language and Settings of the Transcribe
-tab, including your special and learned words. Press *Stop*: the last words are written, and
-the recording and its text are kept in History; *📂 Open in Transcribe* gives Read along,
-subtitles, AI fix and the rest. The first recording waits about half a minute for the model to
-load. Works in phone mode too (the phone's microphone, over HTTPS).
+stretch without pauses is cut every ~10 s). Pick the language and model in *⚙️ Live settings*
+(*💾 Save as Live default* keeps them; the Bangla Whisper is not offered, it is slower than
+speech); the other settings, special and learned words come from the Transcribe tab. Opening
+the tab loads the model (about a minute the first time) and *Record* turns on when it is ready.
+Press *Stop*: the last words are written, and the recording and its text are kept in History;
+*📂 Open in Transcribe* gives Read along, subtitles, AI fix and the rest. Works in phone mode
+too (the phone's microphone, over HTTPS).
 
 ## Batch and History
 

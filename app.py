@@ -31,8 +31,8 @@ from webui.opening import (follow_tick, history_choices, history_delete, history
 from webui.phone import USER as PHONE_USER, certificate, lan_ip, new_password
 from webui.readalong import EMPTY as READALONG_EMPTY, readalong, save_readalong
 from webui import watch
-from webui.settings import (apply_defaults, default_llm, load as load_settings, reset_defaults,
-                            save_defaults)
+from webui.settings import (apply_defaults, apply_live_defaults, default_llm, LIVE_MODELS, live_models,
+                            load as load_settings, reset_defaults, save_defaults, save_live_defaults)
 from webui.sources import (audio_changed, detect_language, get_audio_file, get_video_file,
                            get_youtube, get_youtube_video, selected_part, show_length)
 from webui.transcribing import (edited_subtitles, edited_text, learn_edits, learned_words, resume, run,
@@ -229,8 +229,8 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
 
         with gr.Tab("🎤 Live", id="live") as live_tab:
             gr.Markdown("Speak and the text appears after each pause — for dictating notes, letters "
-                        "or posts. Uses the language and ⚙️ Settings of the Transcribe tab (Bangla always "
-                        "with MMS: the Bangla Whisper is too slow for live); each "
+                        "or posts. Pick the language and model in ⚙️ Live settings (the other settings are the "
+                        "Transcribe tab's); each "
                         "recording is kept in **🕘 History**. A headset or a quiet room helps.")
             with gr.Row():
                 with gr.Column(scale=2):
@@ -240,6 +240,11 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                     with gr.Row():
                         live_open = gr.Button("📂 Open in Transcribe", visible=False)
                         live_clear = gr.Button("✕ Clear")
+                    with gr.Accordion("⚙️ Live settings", open=False):
+                        live_language = gr.Radio(["Bangla", "English"], value="Bangla",
+                                                 label="Language you will speak")
+                        live_model = gr.Radio(LIVE_MODELS["Bangla"], value=DEFAULT_MODEL, label="Model")
+                        live_save = gr.Button("💾 Save as Live default", size="sm")
                 with gr.Column(scale=3):
                     live_text = gr.Textbox(show_label=False, lines=16, max_lines=16, interactive=True,
                                            buttons=["copy"], elem_classes="transcript", autoscroll=True,
@@ -350,8 +355,13 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     batch_clear.click(clear_queue, None, [batch_queue, batch_table, batch_pick, batch_bar])
     demo.load(lambda: load_settings()["watch_folder"], None, watch_folder)
     # Live dictation
-    live_tab.select(live_ready, [model_name, quantize, use_lm], [live_status, mic], show_progress="hidden")
-    mic.start_recording(live_start, [live_text, model_name, quantize, use_lm, hotwords, digits, use_learned],
+    demo.load(apply_live_defaults, None, [live_language, live_model])
+    live_tab.select(live_ready, [live_model, quantize, use_lm], [live_status, mic], show_progress="hidden")
+    live_language.input(live_models, live_language, live_model).then(
+        live_ready, [live_model, quantize, use_lm], [live_status, mic], show_progress="hidden")
+    live_model.input(live_ready, [live_model, quantize, use_lm], [live_status, mic], show_progress="hidden")
+    live_save.click(save_live_defaults, [live_language, live_model], live_status)
+    mic.start_recording(live_start, [live_text, live_model, quantize, use_lm, hotwords, digits, use_learned],
                         live_status, show_progress="hidden")
     mic.stream(live_chunk, mic, [live_text, live_status], stream_every=0.5, time_limit=None,
                show_progress="hidden")
