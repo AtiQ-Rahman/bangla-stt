@@ -61,18 +61,23 @@ def _shown(session: dict) -> str:
 
 
 def live_ready(model_name, quantize, use_lm):
-    """The Live tab was opened: load the model now, so it is ready before the user speaks."""
+    """The Live tab was opened: load the model now; Record is off until it is ready, so the
+    text appears as the user speaks. Returns (status, mic)."""
     model_name = _live_model(model_name)
     if runtime.active:  # a transcription is running; Record loads the model when it is free
-        yield ""
+        yield "", gr.Audio(interactive=True)
         return
     if not WORKER.is_loaded(model_name, quantize):
-        yield "⏳ Loading the model (about a minute)… you can press Record already."
-        job = make_job("live", "", model_name, quantize, use_lm, "", "", "", False, use_learned=False)
-        check_ram(job["model"], job["quantize"], job["use_lm"])
-        _transcriber(job)(np.zeros(SAMPLE_RATE // 2, np.float32), 0.0)
+        yield "⏳ Loading the model (about a minute)… Record turns on when it is ready.", gr.Audio(interactive=False)
+        try:
+            job = make_job("live", "", model_name, quantize, use_lm, "", "", "", False, use_learned=False)
+            check_ram(job["model"], job["quantize"], job["use_lm"])
+            _transcriber(job)(np.zeros(SAMPLE_RATE // 2, np.float32), 0.0)
+        except Exception as e:  # never leave Record off
+            yield f"⚠️ The model could not be loaded: {e}", gr.Audio(interactive=True)
+            return
         runtime.last_used = time.monotonic()
-    yield READY
+    yield READY, gr.Audio(interactive=True)
 
 
 def live_start(text, model_name, quantize, use_lm, hotwords, digits, use_learned, request: gr.Request):

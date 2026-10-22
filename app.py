@@ -350,7 +350,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     batch_clear.click(clear_queue, None, [batch_queue, batch_table, batch_pick, batch_bar])
     demo.load(lambda: load_settings()["watch_folder"], None, watch_folder)
     # Live dictation
-    live_tab.select(live_ready, [model_name, quantize, use_lm], live_status, show_progress="hidden")
+    live_tab.select(live_ready, [model_name, quantize, use_lm], [live_status, mic], show_progress="hidden")
     mic.start_recording(live_start, [live_text, model_name, quantize, use_lm, hotwords, digits, use_learned],
                         live_status, show_progress="hidden")
     mic.stream(live_chunk, mic, [live_text, live_status], stream_every=0.5, time_limit=None,
