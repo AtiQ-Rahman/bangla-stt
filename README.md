@@ -27,7 +27,8 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
    (`90`, `1:30`, `0:01:30`). The language (Bangla or English) is detected and set for you.
 2. **Transcribe**. A progress bar shows how far it is and the time left. **Stop** keeps what
    is done; **⏯ Resume** continues from the last word. The transcript box is editable and the
-   downloads (.txt, .srt) follow your edits.
+   downloads (.txt, .srt) follow your edits. **▶ Read along** shows the text next to the audio:
+   click any word to hear it, and the word being played is highlighted.
 3. **Use the text**:
    - *AI-fixed (local)*: punctuation and spelling with a free local model (below); it can be
      stopped and resumed too, and gives fixed .txt and .srt.

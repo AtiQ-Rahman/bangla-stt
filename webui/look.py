@@ -47,6 +47,38 @@ BEEP_JS = """
 </script>
 """
 
+# Read along (webui.readalong): a click on a word plays the audio from there; while it plays,
+# the current word is lit and kept in view. Listeners sit on the document, so they work for
+# views rendered later. timeupdate doesn't bubble, hence the capture phase.
+READALONG_JS = """
+<script>
+(() => {
+  document.addEventListener("click", (e) => {
+    const word = e.target.closest && e.target.closest(".readalong .w, .readalong .ts");
+    if (!word) return;
+    const audio = word.closest(".readalong").querySelector("audio");
+    audio.currentTime = parseFloat(word.dataset.s);
+    audio.play();
+  });
+  document.addEventListener("timeupdate", (e) => {
+    const box = e.target.closest && e.target.closest(".readalong");
+    if (!box) return;
+    const words = box.querySelectorAll(".w"), t = e.target.currentTime;
+    let lo = 0, hi = words.length - 1, now = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (parseFloat(words[mid].dataset.s) <= t) { now = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    const lit = box.querySelector(".w.now");
+    if (now < 0 || lit === words[now]) return;
+    if (lit) lit.classList.remove("now");
+    words[now].classList.add("now");
+    words[now].scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, true);
+})();
+</script>
+"""
+
 
 THEME = gr.themes.Soft(
     primary_hue=gr.themes.colors.emerald,
@@ -109,6 +141,18 @@ CSS = """
             background: var(--block-background-fill); border: 1px solid var(--border-color-primary); }
 #status p:empty { display: none; }
 #alert { display: none; }
+.readalong audio { width: 100%; margin-bottom: 4px; }
+.ra-hint { font-size: 0.85rem; color: var(--body-text-color-subdued); margin-bottom: 6px; }
+.ra-text { max-height: 430px; overflow-y: auto; padding: 4px 10px; font-size: 1.08rem; line-height: 1.9;
+           border: 1px solid var(--border-color-primary); border-radius: 10px; }
+.ra-text p { margin: 0 0 10px; }
+.ra-text .w { cursor: pointer; border-radius: 4px; padding: 0 1px; }
+.ra-text .w:hover { background: var(--color-accent-soft); }
+.ra-text .w.now { background: var(--primary-200); }
+.dark .ra-text .w.now { background: var(--primary-800); }
+.ra-text .ts { cursor: pointer; font-family: var(--font-mono); font-size: 0.78rem; margin-right: 8px;
+               color: var(--body-text-color-subdued); }
+.ra-empty { padding: 24px; text-align: center; color: var(--body-text-color-subdued); }
 #batch-table tbody tr { cursor: pointer; }
 #batch-table, #batch-table * { font-family: var(--font) !important; }
 #batch-table tbody tr:hover td { background: var(--color-accent-soft); }

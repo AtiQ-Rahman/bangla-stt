@@ -20,10 +20,11 @@ from webui.controls import (busy_buttons, clear_results, enable_if, idle_buttons
                             stopped, text_choices)
 from webui.exporting import export_files, export_video
 from webui.fixing import refresh_llms, resume_correct, run_correct
-from webui.look import BEEP_JS, CSS, step, THEME
+from webui.look import BEEP_JS, CSS, READALONG_JS, step, THEME
 from webui.opening import (follow_tick, history_choices, history_delete, history_open,
                            history_preview, history_search, open_queue_item, stop_following)
 from webui.phone import USER as PHONE_USER, certificate, lan_ip, new_password
+from webui.readalong import EMPTY as READALONG_EMPTY, readalong
 from webui.sources import (audio_changed, detect_language, get_audio_file, get_video_file,
                            get_youtube, get_youtube_video, selected_part, show_length)
 from webui.transcribing import edited_subtitles, edited_text, resume, run
@@ -121,6 +122,8 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                                 buttons=["copy"], elem_classes="transcript",
                                 placeholder="The transcript appears here. You can edit it; "
                                             "the downloads follow your edits.")
+                        with gr.Tab("▶ Read along") as readalong_tab:
+                            readalong_view = gr.HTML(READALONG_EMPTY, padding=False)
                         with gr.Tab("Subtitles (.srt)"):
                             srt_view = gr.Textbox(show_label=False, lines=16, max_lines=16,
                                                   buttons=["copy"], elem_classes="srt", autoscroll=False)
@@ -263,6 +266,11 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                 (export_event, export_bar, "Video with subtitles ready"), (batch_event, batch_bar, "Batch finished")]
     for start_button in (btn, resume_btn, resume_top, fix_btn, fix_resume_btn, video_btn_burn, batch_btn):
         start_button.click(None, js="() => window.sttAskNotify && window.sttAskNotify()")
+    # Read along: render when its tab is opened, and after a run or an open brings a new result.
+    readalong_inputs = [transcript, segs, entry]
+    readalong_tab.select(readalong, readalong_inputs, readalong_view)
+    for event in (transcribe_event, resume_event, resume_top_event):
+        event.success(readalong, readalong_inputs, readalong_view)
     for event, message, title_text in finished:
         event.success(None, message, None,
                       js=f"(m) => window.sttNotify && window.sttNotify({json.dumps(title_text)}, m)")
@@ -331,8 +339,10 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     open_outputs = [pages, audio, title, language, transcript, txt_btn, srt_btn, srt_view, corrected,
                     status, partial, segs, entry, resume_btn, resume_top, video_src, youtube_url,
                     source, pbar, follow, follow_timer]  # in OPEN_FIELDS order
-    history_open_btn.click(history_open, history_pick, open_outputs)
-    batch_table.select(open_queue_item, batch_queue, open_outputs)
+    history_open_btn.click(history_open, history_pick, open_outputs).then(
+        readalong, readalong_inputs, readalong_view)
+    batch_table.select(open_queue_item, batch_queue, open_outputs).then(
+        readalong, readalong_inputs, readalong_view)
     follow_timer.tick(follow_tick, follow, open_outputs, show_progress="hidden")
     history_delete_btn.click(history_delete, history_pick, [history_pick, history_info])
 
@@ -388,7 +398,7 @@ def main():
                    "auth_message": "Bangla STT — enter the password shown in the PC's terminal."}
     # No footer links: the API docs, settings and run history are developer tools; History
     # above keeps the results. allowed_paths: History audio is played and downloaded from there.
-    demo.queue().launch(theme=THEME, css=CSS, head=BEEP_JS, footer_links=[], run_history=False,
+    demo.queue().launch(theme=THEME, css=CSS, head=BEEP_JS + READALONG_JS, footer_links=[], run_history=False,
                         allowed_paths=[str(history.HISTORY_DIR)], prevent_thread_lock=True, quiet=True,
                         server_port=args.port, **options)
     print(f"Bangla STT is running at {demo.local_url}  —  press Ctrl+C here to stop it.", flush=True)
