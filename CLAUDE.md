@@ -1,0 +1,45 @@
+# Bangla STT — notes for working on this repo
+
+Local Bangla/English speech-to-text web app (Gradio 6, CPU only). README.md has the user-facing
+features; this file is about the code and the lessons learned building it.
+
+## Layout
+- `app.py` — page layout and event wiring only; `main()` parses `--phone/--password/--port`.
+- `webui/` — handlers by area: `common` (temp dir, RAM, helpers, `LIVE`, `runtime`), `sources`
+  (YouTube/files/trim/language), `transcribing` (`_work` core loop, run/resume, edit sync),
+  `fixing` (Ollama fix), `exporting` (vtt/docx/burned video/translation), `batch`, `opening`
+  (History, dashboard open, live follow via `OPEN_FIELDS`/`opened()`), `controls` (button states),
+  `readalong` + `look` (Read along HTML + page JS/CSS), `settings` (saved defaults), `claude`, `phone`.
+- `stt/` — no UI: `transcribe` (MMS/XLS-R CTC windows + Whisper, NFC output), `worker` (models run
+  in a spawned process), `audio` (ffmpeg, yt-dlp, browser cookies), `history`, `retime`, `correct`
+  (guarded LLM fix), `translate`, `speakers` (sherpa-onnx diarization), `export`, `langid`.
+
+## Commands
+- Run: `./run.sh` (port 7860). Tests: `.venv/bin/python -m pytest -q tests` (~16 s);
+  `STT_SAMPLE_BN=<bangla audio>` enables the model tests. Lint: `.venv/bin/python -m pyflakes app.py webui stt tests`.
+- The user's own app usually runs on 7860 — test servers go on 7861 and must not touch
+  `~/.config/bangla-stt` (use a temp settings file) or kill the user's processes.
+
+## Gotchas (each cost real debugging time)
+- Handlers return positional tuples matching output lists; `tests/test_app.py` checks the counts —
+  update `busy_buttons`/`idle_buttons`/`clear_results`/`OPEN_FIELDS` together with the layout.
+- Values computed in browser JS cannot reach the server through `gr.State`; use a hidden
+  component (`gr.Checkbox`/`gr.Textbox` with `visible=False` or a `.ra-hidden` class).
+- Gradio cancel of a generator only lands when the current `next()` returns, so Stop goes through
+  `WORKER.cancel()` (+ kill after a grace period); `stopped()` uses `queue=False` and a JS-only
+  instant "Stopping…" update.
+- `multiprocessing` spawn re-runs the main script; `Worker._start` hides `__main__` while starting.
+  The worker exits itself when its parent dies (orphans held GBs of RAM).
+- Bangla `য়` has two Unicode encodings: all text is NFC (transcribe output, History search, CER).
+- MMS drops words at window starts/ends: windows overlap (3 s lead, 1 s margin). The Bengali.AI
+  Whisper must run on ~14 s chunks (long-form mode drops passages), with word timestamps on.
+- RAM is tight (16 GB): int8 quantize *in place*, KenLM is memory-mapped, the worker is killed
+  before Ollama runs, `check_ram` refuses loads that won't fit.
+- API tests (`gradio_client`) don't fire UI change events (e.g. call `/pick_language` first so a
+  model radio accepts the model; `/text_choices` before exporting "AI-fixed text").
+- `pkill -f <pattern>` in a shell whose own command line contains the pattern kills that shell —
+  use a bracket trick (`[s]erve.py`) or PID files.
+
+## Measured (test clip: 102 s Bangla news)
+CER: MMS+LM int8 4.0% (~35 s), Bengali.AI Whisper chunked 4.4% (better names, 2–5x slower),
+XLS-R 9%. Noise filters, Demucs, LM weight tuning and gemma3:12b fixes did not help.
