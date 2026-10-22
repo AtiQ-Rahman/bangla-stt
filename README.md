@@ -66,6 +66,15 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
 as my defaults* (also keeps the Claude task, the local AI model and the Batch language). They
 are stored in `~/.config/bangla-stt/settings.json` (learned words in `dictionary.json` next to it); *↺ Built-in defaults* goes back.
 
+## Live dictation
+
+**🎤 Live**: press *Record* and speak — the text appears a few seconds after each pause (a long
+stretch without pauses is cut every ~10 s). It uses the language and Settings of the Transcribe
+tab, including your special and learned words. Press *Stop*: the last words are written, and
+the recording and its text are kept in History; *📂 Open in Transcribe* gives Read along,
+subtitles, AI fix and the rest. The first recording waits about half a minute for the model to
+load. Works in phone mode too (the phone's microphone, over HTTPS).
+
 ## Batch and History
 
 - **📚 Batch**: build a queue — paste YouTube links (one or many) and press *Add*, or pick

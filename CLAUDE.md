@@ -10,11 +10,13 @@ features; this file is about the code and the lessons learned building it.
   `fixing` (Ollama fix), `exporting` (vtt/docx/burned video/translation), `batch`, `opening`
   (History, dashboard open, live follow via `OPEN_FIELDS`/`opened()`), `controls` (button states),
   `readalong` + `look` (Read along HTML + page JS/CSS), `settings` (saved defaults), `claude`, `phone`,
-  `chaptering` (Chapters tab), `watch` (Batch folder watch).
+  `chaptering` (Chapters tab), `watch` (Batch folder watch), `dictating` (Live tab; per-browser
+  sessions keyed by `request.session_hash`).
 - `stt/` — no UI: `transcribe` (MMS/XLS-R CTC windows + Whisper, NFC output), `worker` (models run
   in a spawned process), `audio` (ffmpeg, yt-dlp, browser cookies), `history`, `retime`, `correct`
   (guarded LLM fix), `translate`, `speakers` (sherpa-onnx diarization), `export`, `langid`,
-  `dictionary` (words learned from edits → hotwords), `chapters` (parts at pauses + LLM titles).
+  `dictionary` (words learned from edits → hotwords), `chapters` (parts at pauses + LLM titles),
+  `dictation` (mic chunks → phrases at pauses → background transcription).
 
 ## Commands
 - Run: `./run.sh` (port 7860). Tests: `.venv/bin/python -m pytest -q tests` (~16 s);
@@ -30,6 +32,11 @@ features; this file is about the code and the lessons learned building it.
   use `unicodedata.category`. Whisper chunk words may lack the leading space: join with `_join`.
 - gemma3:4b answers in Bangla with translated labels ("শিরোনাম:" for "TITLE:") and invents
   names when not told to stick to the text: parse loosely, forbid outside facts in prompts.
+- The Live tab is browser-tested with headless Chrome's fake mic: `--use-fake-ui-for-media-stream
+  --use-fake-device-for-media-stream --use-file-for-fake-audio-capture=<48 kHz wav>%noloop`.
+  Click only visible buttons (`b.offsetParent`): every tab's Audio has a Record button.
+- Never `pkill -f`/`pgrep -f` a pattern that also appears in the same shell command (it kills
+  that shell); keep test servers' PIDs in a file.
 - Values computed in browser JS cannot reach the server through `gr.State`; use a hidden
   component (`gr.Checkbox`/`gr.Textbox` with `visible=False` or a `.ra-hidden` class).
 - Gradio cancel of a generator only lands when the current `next()` returns, so Stop goes through

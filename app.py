@@ -18,6 +18,8 @@ from stt.transcribe import DEFAULT_MODEL, LANGUAGE_MODELS
 from webui.batch import add_files, add_links, clear_queue, remove_items, run_batch
 from webui.chaptering import claude_prompt, make_chapters, saved_chapters
 from webui.claude import claude_sent, CLAUDE_TASKS, SEND_TO_CLAUDE_JS
+from webui.dictating import (live_abandoned, live_chunk, live_clear as live_clear_fn, live_start,
+                             live_stop, live_stopping)
 from webui.common import bar_html, BROWSER, idle_unloader, ram_status, ram_tick
 from webui.controls import (busy_buttons, clear_results, enable_if, idle_buttons, pick_language,
                             stopped, text_choices)
@@ -225,6 +227,25 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                     claude_btn = gr.Button("Send to Claude ↗", size="lg", elem_id="claude-btn")
                     claude_status = gr.Markdown("", elem_id="claude-status")
 
+        with gr.Tab("🎤 Live", id="live"):
+            gr.Markdown("Speak and the text appears after each pause — for dictating notes, letters "
+                        "or posts. Uses the language and ⚙️ Settings of the Transcribe tab; each "
+                        "recording is kept in **🕘 History**. A headset or a quiet room helps.")
+            with gr.Row():
+                with gr.Column(scale=2):
+                    mic = gr.Audio(sources=["microphone"], type="numpy", streaming=True,
+                                   label="Microphone — press Record, Stop when done")
+                    live_status = gr.Markdown("", elem_classes="hint")
+                    with gr.Row():
+                        live_open = gr.Button("📂 Open in Transcribe", visible=False)
+                        live_clear = gr.Button("✕ Clear")
+                with gr.Column(scale=3):
+                    live_text = gr.Textbox(show_label=False, lines=16, max_lines=16, interactive=True,
+                                           buttons=["copy"], elem_classes="transcript", autoscroll=True,
+                                           placeholder="Your words appear here…")
+                    live_txt_btn = gr.DownloadButton("⬇ Text (.txt)", interactive=False)
+                    live_entry = gr.State(None)
+
         with gr.Tab("📚 Batch", id="batch"):
             gr.Markdown("Queue up YouTube links and audio/video files, then start — they are "
                         "transcribed one after another and saved in **🕘 History**. Uses the "
@@ -327,6 +348,15 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     batch_remove.click(remove_items, [batch_pick, batch_queue], [batch_queue, batch_table, batch_pick])
     batch_clear.click(clear_queue, None, [batch_queue, batch_table, batch_pick, batch_bar])
     demo.load(lambda: load_settings()["watch_folder"], None, watch_folder)
+    # Live dictation
+    mic.start_recording(live_start, [live_text, model_name, quantize, use_lm, hotwords, digits, use_learned],
+                        live_status, show_progress="hidden")
+    mic.stream(live_chunk, mic, [live_text, live_status], stream_every=0.5, time_limit=None,
+               show_progress="hidden")
+    mic.stop_recording(live_stopping, None, live_status, queue=False).then(
+        live_stop, None, [live_text, live_status, live_txt_btn, live_entry, live_open], show_progress="hidden")
+    demo.unload(live_abandoned)  # the page was closed while recording
+    live_clear.click(live_clear_fn, None, [live_text, live_status, live_txt_btn, live_entry, live_open])
     watch_on.change(watch.toggle, [watch_on, watch_folder], [watch_timer, watch_msg, watch_on])
     watch_timer.tick(watch.tick, [watch_on, watch_folder, batch_queue, busy],
                      [batch_queue, batch_table, batch_pick, watch_start], show_progress="hidden")
@@ -431,6 +461,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                     source, pbar, follow, follow_timer]  # in OPEN_FIELDS order
     history_open_btn.click(history_open, history_pick, open_outputs).then(
         readalong, readalong_inputs, readalong_view)
+    live_open.click(history_open, live_entry, open_outputs).then(readalong, readalong_inputs, readalong_view)
     batch_table.select(open_queue_item, batch_queue, open_outputs).then(
         readalong, readalong_inputs, readalong_view)
     follow_timer.tick(follow_tick, follow, open_outputs, show_progress="hidden")
