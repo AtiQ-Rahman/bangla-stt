@@ -18,14 +18,12 @@ from webui.common import check_ram, file_button, language_of, no_file, out_file,
 from webui.transcribing import make_job
 
 SESSIONS: dict[str, dict] = {}  # browser session -> {"dictation", "job", "before"}
-READY = "✅ Ready — press Record and speak."
 MIC = "3. Microphone — press Record, Stop when done"
 
 
 def _mic(ready: bool):
     """The microphone, on or off (off while the model loads: then it is an empty box, so say why)."""
     return gr.Audio(interactive=ready, label=MIC if ready else "3. Microphone — ⏳ waits for the model…")
-
 
 
 def _transcriber(job: dict):
@@ -60,24 +58,39 @@ def _shown(session: dict) -> str:
     return text + (" …" if d.pending else "")
 
 
+def _in_memory() -> str:
+    loaded = WORKER.loaded if WORKER.alive() else None
+    return f"In memory: **{loaded[0]}**." if loaded else "No model in memory yet."
+
+
+def live_selected(model_name, quantize):
+    """Language or model picked: Record is on only if that model is the one in memory.
+    Returns (status, mic)."""
+    if WORKER.is_loaded(model_name, quantize):
+        return f"✅ **{model_name}** is ready — press Record and speak.", _mic(True)
+    return (f"⚪ **{model_name}** is selected but not loaded — press **▶ Load model**. "
+            f"{_in_memory()}"), _mic(False)
+
+
 def live_ready(model_name, quantize, use_lm):
-    """The Live tab was opened: load the model now; Record is off until it is ready, so the
-    text appears as the user speaks. Returns (status, mic)."""
+    """Load the selected model (▶ Load model, or the Live tab opened); Record is off until it
+    is ready, so the text appears as the user speaks. Returns (status, mic)."""
     if runtime.active:  # a recording is being finished, or a transcription runs
-        yield ("⏳ Busy: the last recording is still being written (or a transcription runs). "
-               "The model loads when you press Record."), _mic(True)
+        yield ("⏳ Busy: the last recording is still being written (or a transcription runs) — "
+               f"press ▶ Load model again in a moment. {_in_memory()}"), _mic(False)
         return
     if not WORKER.is_loaded(model_name, quantize):
-        yield f"⏳ Loading {model_name} (about a minute)… Record turns on when it is ready.", _mic(False)
+        yield (f"⏳ Loading **{model_name}** (about a minute; the first time it may download)… "
+               "Record turns on when it is ready."), _mic(False)
         try:
             job = make_job("live", "", model_name, quantize, use_lm, "", "", "", False, use_learned=False)
             check_ram(job["model"], job["quantize"], job["use_lm"])
             _transcriber(job)(np.zeros(SAMPLE_RATE // 2, np.float32), 0.0)
-        except Exception as e:  # never leave Record off
-            yield f"⚠️ The model could not be loaded: {e}", _mic(True)
+        except Exception as e:
+            yield f"⚠️ **{model_name}** could not be loaded: {e}", _mic(False)
             return
         runtime.last_used = time.monotonic()
-    yield f"{READY} ({model_name})", _mic(True)
+    yield live_selected(model_name, quantize)
 
 
 def live_start(text, model_name, quantize, use_lm, hotwords, digits, use_learned, request: gr.Request):

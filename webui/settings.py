@@ -80,7 +80,7 @@ def save_live_defaults(language, model):
     values.update({"live_language": language, f"live_{language.lower()}_model": model})
     FILE.parent.mkdir(parents=True, exist_ok=True)
     FILE.write_text(json.dumps(values, ensure_ascii=False, indent=2), encoding="utf-8")
-    return f"✅ Saved as the Live default ({language}: {model})."
+    gr.Info(f"Saved: the Live tab starts with {language} and {model} from now on.")
 
 
 def remember(key: str, value):

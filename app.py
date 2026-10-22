@@ -19,7 +19,7 @@ from webui.batch import add_files, add_links, clear_queue, remove_items, run_bat
 from webui.chaptering import claude_prompt, make_chapters, saved_chapters
 from webui.claude import claude_sent, CLAUDE_TASKS, SEND_TO_CLAUDE_JS
 from webui.dictating import (live_abandoned, live_chunk, live_clear as live_clear_fn, live_ready,
-                             live_start, live_stop, live_stopping)
+                             live_selected, live_start, live_stop, live_stopping)
 from webui.common import bar_html, BROWSER, idle_unloader, ram_status, ram_tick
 from webui.controls import (busy_buttons, clear_results, enable_if, idle_buttons, pick_language,
                             stopped, text_choices)
@@ -235,9 +235,12 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
             with gr.Row(equal_height=True):
                 live_language = gr.Radio(["Bangla", "English"], value="Bangla", scale=1,
                                          label="1. Language you will speak")
-                live_model = gr.Radio(LIVE_MODELS["Bangla"], value=DEFAULT_MODEL, scale=2, label="2. Model")
-                live_save = gr.Button("💾 Save as Live default", size="sm", scale=0, min_width=160)
-            live_status = gr.Markdown("")  # Loading / Ready / Listening, right under the settings
+                live_model = gr.Radio(LIVE_MODELS["Bangla"], value=DEFAULT_MODEL, scale=3,
+                                      label="2. Model (the first one is the fastest)")
+            with gr.Row():
+                live_load = gr.Button("▶ Load model", variant="primary", scale=0, min_width=160)
+                live_save = gr.Button("💾 Save as my default", scale=0, min_width=160)
+            live_status = gr.Markdown("")  # which model is loading / ready / listening
             with gr.Row():
                 with gr.Column(scale=2):
                     mic = gr.Audio(sources=["microphone"], type="numpy", streaming=True,
@@ -358,9 +361,10 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     demo.load(apply_live_defaults, None, [live_language, live_model])
     live_tab.select(live_ready, [live_model, quantize, use_lm], [live_status, mic], show_progress="hidden")
     live_language.input(live_models, live_language, live_model).then(
-        live_ready, [live_model, quantize, use_lm], [live_status, mic], show_progress="hidden")
-    live_model.input(live_ready, [live_model, quantize, use_lm], [live_status, mic], show_progress="hidden")
-    live_save.click(save_live_defaults, [live_language, live_model], live_status)
+        live_selected, [live_model, quantize], [live_status, mic])
+    live_model.input(live_selected, [live_model, quantize], [live_status, mic])
+    live_load.click(live_ready, [live_model, quantize, use_lm], [live_status, mic], show_progress="hidden")
+    live_save.click(save_live_defaults, [live_language, live_model], None)
     mic.start_recording(live_start, [live_text, live_model, quantize, use_lm, hotwords, digits, use_learned],
                         live_status, show_progress="hidden")
     mic.stream(live_chunk, mic, [live_text, live_status], stream_every=0.5, time_limit=None,
