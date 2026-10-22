@@ -19,6 +19,12 @@ from webui.transcribing import make_job
 
 SESSIONS: dict[str, dict] = {}  # browser session -> {"dictation", "job", "before"}
 READY = "✅ Ready — press Record and speak."
+MIC = "3. Microphone — press Record, Stop when done"
+
+
+def _mic(ready: bool):
+    """The microphone, on or off (off while the model loads: then it is an empty box, so say why)."""
+    return gr.Audio(interactive=ready, label=MIC if ready else "3. Microphone — ⏳ waits for the model…")
 
 
 def _live_model(model_name: str) -> str:
@@ -64,20 +70,21 @@ def live_ready(model_name, quantize, use_lm):
     """The Live tab was opened: load the model now; Record is off until it is ready, so the
     text appears as the user speaks. Returns (status, mic)."""
     model_name = _live_model(model_name)
-    if runtime.active:  # a transcription is running; Record loads the model when it is free
-        yield "", gr.Audio(interactive=True)
+    if runtime.active:  # a recording is being finished, or a transcription runs
+        yield ("⏳ Busy: the last recording is still being written (or a transcription runs). "
+               "The model loads when you press Record."), _mic(True)
         return
     if not WORKER.is_loaded(model_name, quantize):
-        yield "⏳ Loading the model (about a minute)… Record turns on when it is ready.", gr.Audio(interactive=False)
+        yield f"⏳ Loading {model_name} (about a minute)… Record turns on when it is ready.", _mic(False)
         try:
             job = make_job("live", "", model_name, quantize, use_lm, "", "", "", False, use_learned=False)
             check_ram(job["model"], job["quantize"], job["use_lm"])
             _transcriber(job)(np.zeros(SAMPLE_RATE // 2, np.float32), 0.0)
         except Exception as e:  # never leave Record off
-            yield f"⚠️ The model could not be loaded: {e}", gr.Audio(interactive=True)
+            yield f"⚠️ The model could not be loaded: {e}", _mic(True)
             return
         runtime.last_used = time.monotonic()
-    yield READY, gr.Audio(interactive=True)
+    yield f"{READY} ({model_name})", _mic(True)
 
 
 def live_start(text, model_name, quantize, use_lm, hotwords, digits, use_learned, request: gr.Request):
@@ -141,17 +148,18 @@ def _end(session_hash: str):
 
 def live_stop(request: gr.Request):
     session, entry = _end(request.session_hash)
+    empty = gr.Audio(value=None)  # the Record button again, not a player of the recording
     if not session:
-        return (gr.skip(),) * 5
+        return (gr.skip(),) * 5 + (empty,)
     text = _shown(session)
     if session["dictation"].error:
         gr.Warning(f"Some speech could not be transcribed: {session['dictation'].error}")
     if not entry:
-        return text, "Nothing was heard — check the microphone.", gr.skip(), gr.skip(), gr.skip()
+        return text, "Nothing was heard — check the microphone.", gr.skip(), gr.skip(), gr.skip(), empty
     path = out_file(session["job"]["title"], ".txt")
     path.write_text(text, encoding="utf-8")
     return (text, "✅ Saved in 🕘 History — open it for Read along, subtitles, AI fix…",
-            file_button(path), str(entry), gr.Button(visible=True))
+            file_button(path), str(entry), gr.Button(visible=True), empty)
 
 
 def live_abandoned(request: gr.Request):

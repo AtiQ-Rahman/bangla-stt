@@ -366,7 +366,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     mic.stream(live_chunk, mic, [live_text, live_status], stream_every=0.5, time_limit=None,
                show_progress="hidden")
     mic.stop_recording(live_stopping, None, live_status, queue=False).then(
-        live_stop, None, [live_text, live_status, live_txt_btn, live_entry, live_open], show_progress="hidden")
+        live_stop, None, [live_text, live_status, live_txt_btn, live_entry, live_open, mic], show_progress="hidden")
     demo.unload(live_abandoned)  # the page was closed while recording
     live_clear.click(live_clear_fn, None, [live_text, live_status, live_txt_btn, live_entry, live_open])
     watch_on.change(watch.toggle, [watch_on, watch_folder], [watch_timer, watch_msg, watch_on])

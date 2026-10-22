@@ -16,10 +16,11 @@ BUILT_IN = {"language": "Bangla", "bangla_model": LANGUAGE_MODELS["Bangla"][0],
             "claude_task": "Fix spelling & punctuation", "llm": DEFAULT_LLM, "batch_lang": "Auto",
             "watch_folder": str(Path.home() / "bangla-stt-inbox"),
             "live_language": "Bangla", "live_bangla_model": LANGUAGE_MODELS["Bangla"][0],
-            "live_english_model": LANGUAGE_MODELS["English"][0]}
-# Live tab models: not the Bangla Whisper, which is slower than speech on a CPU
+            "live_english_model": "Whisper small - faster"}
+# Live tab models: not the Bangla Whisper, which is slower than speech on a CPU; for English
+# the small Whisper first (large-v3-turbo falls behind the speaker)
 LIVE_MODELS = {"Bangla": [m for m in LANGUAGE_MODELS["Bangla"] if m not in WHISPER_MODELS],
-               "English": LANGUAGE_MODELS["English"]}
+               "English": sorted(LANGUAGE_MODELS["English"], key=lambda m: "small" not in m)}
 
 
 def load() -> dict:
