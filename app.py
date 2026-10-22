@@ -229,22 +229,22 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
 
         with gr.Tab("🎤 Live", id="live") as live_tab:
             gr.Markdown("Speak and the text appears after each pause — for dictating notes, letters "
-                        "or posts. Pick the language and model in ⚙️ Live settings (the other settings are the "
-                        "Transcribe tab's); each "
+                        "or posts. Pick the language and model here (the other settings are the Transcribe "
+                        "tab's); each "
                         "recording is kept in **🕘 History**. A headset or a quiet room helps.")
+            with gr.Row(equal_height=True):
+                live_language = gr.Radio(["Bangla", "English"], value="Bangla", scale=1,
+                                         label="1. Language you will speak")
+                live_model = gr.Radio(LIVE_MODELS["Bangla"], value=DEFAULT_MODEL, scale=2, label="2. Model")
+                live_save = gr.Button("💾 Save as Live default", size="sm", scale=0, min_width=160)
+            live_status = gr.Markdown("")  # Loading / Ready / Listening, right under the settings
             with gr.Row():
                 with gr.Column(scale=2):
                     mic = gr.Audio(sources=["microphone"], type="numpy", streaming=True,
-                                   label="Microphone — press Record, Stop when done")
-                    live_status = gr.Markdown("", elem_classes="hint")
+                                   label="3. Microphone — press Record, Stop when done")
                     with gr.Row():
                         live_open = gr.Button("📂 Open in Transcribe", visible=False)
                         live_clear = gr.Button("✕ Clear")
-                    with gr.Accordion("⚙️ Live settings", open=False):
-                        live_language = gr.Radio(["Bangla", "English"], value="Bangla",
-                                                 label="Language you will speak")
-                        live_model = gr.Radio(LIVE_MODELS["Bangla"], value=DEFAULT_MODEL, label="Model")
-                        live_save = gr.Button("💾 Save as Live default", size="sm")
                 with gr.Column(scale=3):
                     live_text = gr.Textbox(show_label=False, lines=16, max_lines=16, interactive=True,
                                            buttons=["copy"], elem_classes="transcript", autoscroll=True,
