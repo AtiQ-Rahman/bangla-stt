@@ -54,10 +54,37 @@ READALONG_JS = """
 <script>
 (() => {
   const box = (el) => el && el.closest && el.closest(".readalong");
-  const seek = (b, t) => { const a = b.querySelector("audio"); a.currentTime = t; a.play(); };
   const editing = (b) => b.classList.contains("editing");
   const saved = new WeakMap();  // a view's text before editing, for Cancel
+  const remember = (k, v) => { try { localStorage.setItem("ra-" + k, v); } catch (e) {} };
+  const recall = (k) => { try { return localStorage.getItem("ra-" + k); } catch (e) { return null; } };
 
+  // Views are re-rendered (after a save, on opening the tab): restore the reader's choices.
+  const setup = (b) => {
+    if (b.dataset.ready) return;
+    b.dataset.ready = "1";
+    const size = recall("size"), speed = recall("speed"), follow = recall("follow");
+    if (size) b.style.setProperty("--ra-size", size + "rem");
+    if (speed) b.querySelector('[data-act="speed"]').value = speed;
+    if (follow) { b.dataset.follow = follow; b.querySelector('[data-act="follow"]').checked = follow === "1"; }
+    if (sessionStorage.getItem("ra-focus") === "1") setFocus(b, true);
+  };
+  new MutationObserver(() => document.querySelectorAll(".readalong").forEach(setup))
+    .observe(document.documentElement, { childList: true, subtree: true });
+
+  const setFocus = (b, on) => {
+    b.classList.toggle("focus", on);
+    document.body.classList.toggle("ra-focused", on);
+    b.querySelector(".ra-focus-btn").textContent = on ? "✕ Exit focus" : "⛶ Focus";
+    sessionStorage.setItem("ra-focus", on ? "1" : "0");
+    if (on) b.focus();
+  };
+  const resize = (b, step) => {
+    const now = parseFloat(getComputedStyle(b).getPropertyValue("--ra-size")) || 1.15;
+    const size = Math.min(2.2, Math.max(0.9, Math.round((now + step) * 100) / 100));
+    b.style.setProperty("--ra-size", size + "rem");
+    remember("size", size);
+  };
   // The word at the text cursor (or the one just before it).
   const wordAtCursor = (b) => {
     const sel = getSelection();
@@ -66,8 +93,7 @@ READALONG_JS = """
     if (node && node.nodeType === 3) node = node.parentElement;
     const word = node && node.closest && node.closest(".w");
     if (word) return word;
-    const words = [...b.querySelectorAll(".w")];
-    return words.reverse().find((w) => sel.getRangeAt(0).comparePoint(w, 0) <= 0) || null;
+    return [...b.querySelectorAll(".w")].reverse().find((w) => sel.getRangeAt(0).comparePoint(w, 0) <= 0) || null;
   };
   // The edited text: paragraphs, with "Speaker N:" where a speaker badge is.
   const editedText = (b) => [...b.querySelectorAll(".ra-text p")].map((p) => {
@@ -79,6 +105,16 @@ READALONG_JS = """
     });
     return out.trim();
   }).join("\\n\\n").trim();
+  // Mark changed words and count them.
+  const markChanges = (b) => {
+    let n = 0;
+    b.querySelectorAll(".ra-text .w").forEach((w) => {
+      const changed = w.textContent.trim() !== w.dataset.o;
+      w.classList.toggle("changed", changed);
+      n += changed;
+    });
+    b.querySelector(".ra-dirty").textContent = n ? `● ${n} change${n > 1 ? "s" : ""} not saved` : "";
+  };
 
   const startEdit = (b) => {
     const text = b.querySelector(".ra-text");
@@ -93,6 +129,7 @@ READALONG_JS = """
     if (!keep) text.innerHTML = saved.get(b);
     text.contentEditable = "false";
     b.classList.remove("editing");
+    b.querySelector(".ra-dirty").textContent = "";
   };
   const save = (b) => {
     const input = document.querySelector("#ra-edit-box textarea");
@@ -102,6 +139,7 @@ READALONG_JS = """
     stopEdit(b, true);
     setTimeout(() => document.querySelector("#ra-save-btn").click(), 60);
   };
+  const playPause = (a) => (a.paused ? a.play() : a.pause());
 
   document.addEventListener("click", (e) => {
     const b = box(e.target);
@@ -112,7 +150,9 @@ READALONG_JS = """
       ({
         back: () => (a.currentTime = Math.max(0, a.currentTime - 5)),
         fwd: () => (a.currentTime = a.currentTime + 5),
-        play: () => (a.paused ? a.play() : a.pause()),
+        play: () => playPause(a),
+        smaller: () => resize(b, -0.1), bigger: () => resize(b, 0.1),
+        focus: () => setFocus(b, !b.classList.contains("focus")),
         edit: () => startEdit(b), save: () => save(b), cancel: () => stopEdit(b, false),
       })[act.dataset.act]();
       return;
@@ -120,12 +160,11 @@ READALONG_JS = """
     const word = e.target.closest(".w, .ts");
     if (word && (!editing(b) || e.altKey)) {
       e.preventDefault();
-      seek(b, parseFloat(word.dataset.s));
+      a.currentTime = parseFloat(word.dataset.s);
+      a.play();
     }
   });
-  // Speed and Follow are remembered in this browser, and applied whenever a view starts playing.
-  const remember = (k, v) => { try { localStorage.setItem("ra-" + k, v); } catch (e) {} };
-  const recall = (k) => { try { return localStorage.getItem("ra-" + k); } catch (e) { return null; } };
+  document.addEventListener("input", (e) => { const b = box(e.target); if (b && editing(b)) markChanges(b); });
   document.addEventListener("change", (e) => {
     const b = box(e.target);
     if (!b || !e.target.dataset.act) return;
@@ -139,25 +178,33 @@ READALONG_JS = """
     }
   });
   document.addEventListener("play", (e) => {
-    const b = box(e.target);
-    if (!b) return;
-    const speed = recall("speed"), follow = recall("follow");
-    if (speed) { e.target.playbackRate = parseFloat(speed); b.querySelector('[data-act="speed"]').value = speed; }
-    if (follow) { b.dataset.follow = follow; b.querySelector('[data-act="follow"]').checked = follow === "1"; }
+    const b = box(e.target), speed = recall("speed");
+    if (b && speed) e.target.playbackRate = parseFloat(speed);
   }, true);
   document.addEventListener("keydown", (e) => {
-    const b = box(e.target);
-    if (!b || !editing(b)) return;
+    // Keys go to the view the key was pressed in, or to the one in focus mode.
+    const b = box(e.target) || document.querySelector(".readalong.focus");
+    if (!b) return;
     const a = b.querySelector("audio");
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(b); }
-    else if (e.key === "Escape") { e.preventDefault(); stopEdit(b, false); }
-    else if (e.code === "Space" && e.ctrlKey) {
-      e.preventDefault();
-      if (!a.paused) { a.pause(); return; }
-      const word = wordAtCursor(b);
-      if (word) a.currentTime = parseFloat(word.dataset.s);
-      a.play();
+    if (editing(b)) {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(b); }
+      else if (e.key === "Escape") { e.preventDefault(); stopEdit(b, false); }
+      else if (e.code === "Space" && e.ctrlKey) {
+        e.preventDefault();
+        if (!a.paused) { a.pause(); return; }
+        const word = wordAtCursor(b);
+        if (word) a.currentTime = parseFloat(word.dataset.s);
+        a.play();
+      }
+      return;
     }
+    if (/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(e.target.tagName)) return;  // their own keys
+    const keys = {
+      " ": () => playPause(a), ArrowLeft: () => (a.currentTime = Math.max(0, a.currentTime - 5)),
+      ArrowRight: () => (a.currentTime = a.currentTime + 5), e: () => startEdit(b), E: () => startEdit(b),
+      Escape: () => b.classList.contains("focus") && setFocus(b, false),
+    };
+    if (keys[e.key]) { e.preventDefault(); keys[e.key](); }
   });
   document.addEventListener("timeupdate", (e) => {
     const b = box(e.target);
@@ -172,7 +219,7 @@ READALONG_JS = """
     if (now < 0 || lit === words[now]) return;
     if (lit) lit.classList.remove("now");
     words[now].classList.add("now");
-    if (b.dataset.follow === "1" && !editing(b)) words[now].scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (b.dataset.follow === "1" && !editing(b)) words[now].scrollIntoView({ block: "center", behavior: "smooth" });
   }, true);
 })();
 </script>
@@ -240,14 +287,24 @@ CSS = """
             background: var(--block-background-fill); border: 1px solid var(--border-color-primary); }
 #status p:empty { display: none; }
 #alert { display: none; }
+.readalong { --ra-size: 1.15rem; outline: none; }
 .readalong audio { width: 100%; margin-bottom: 4px; }
 .ra-hint { font-size: 0.85rem; color: var(--body-text-color-subdued); margin-bottom: 6px; }
-.ra-text { max-height: 430px; overflow-y: auto; padding: 4px 10px; font-size: 1.08rem; line-height: 1.9;
-           border: 1px solid var(--border-color-primary); border-radius: 10px; }
-.ra-text p { margin: 0 0 10px; }
+.ra-text { height: clamp(420px, calc(100vh - 330px), 1000px); overflow-y: auto; padding: 10px 16px;
+           font-size: var(--ra-size); line-height: 2; border: 1px solid var(--border-color-primary);
+           border-radius: 12px; background: var(--block-background-fill); }
+.ra-text p { margin: 0 0 14px; }
+/* Focus mode: the view takes the whole window */
+.readalong.focus { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column;
+                   padding: 14px max(16px, 8vw) 18px; background: var(--body-background-fill); }
+.readalong.focus .ra-text { flex: 1; height: auto; padding: 16px 28px; }
+body.ra-focused { overflow: hidden; }
 .ra-text .w { cursor: pointer; border-radius: 4px; padding: 0 1px; }
 .ra-text .w:hover { background: var(--color-accent-soft); }
 .ra-text .w.now { background: var(--primary-200); }
+.ra-text .w.changed { background: #fef3c7; box-shadow: inset 0 -2px 0 #f59e0b; }
+.dark .ra-text .w.changed { background: #422006; box-shadow: inset 0 -2px 0 #d97706; }
+.ra-dirty { color: #b45309; font-size: 0.85rem; font-weight: 600; margin-right: 6px; }
 .dark .ra-text .w.now { background: var(--primary-800); }
 .ra-text .ts { cursor: pointer; font-family: var(--font-mono); font-size: 0.78rem; margin-right: 8px;
                color: var(--body-text-color-subdued); }

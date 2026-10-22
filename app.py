@@ -300,6 +300,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     readalong_tab.select(readalong, readalong_inputs, readalong_view)
     ra_save.click(save_readalong, [ra_edit, segs, title, entry],
                   [transcript, txt_btn, srt_btn, srt_view, readalong_view])
+    transcript.blur(readalong, readalong_inputs, readalong_view)  # edits there show in Read along too
     for event in (transcribe_event, resume_event, resume_top_event):
         event.success(readalong, readalong_inputs, readalong_view)
     for event, message, title_text in finished:

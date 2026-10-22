@@ -28,8 +28,9 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
 2. **Transcribe**. A progress bar shows how far it is and the time left. **Stop** keeps what
    is done; **⏯ Resume** continues from the last word. The transcript box is editable and the
    downloads (.txt, .srt) follow your edits. **▶ Read along** shows the text next to the audio:
-   click any word to hear it, and the word being played is highlighted; ⏪/⏩ 5 s, speed and
-   Follow are in its toolbar. **✏️ Edit text** there lets you fix words while listening
+   click any word to hear it, and the word being played is highlighted; ⏪/⏩ 5 s, speed,
+   Follow, text size (A−/A+) and **⛶ Focus** (the whole window, for long texts) are in its
+   toolbar, and Space / ← → / E work as keys. **✏️ Edit text** there lets you fix words while listening
    (Alt+click a word to hear it, Ctrl+Space plays from the cursor, Ctrl+Enter saves, Esc
    cancels); saving updates the transcript, downloads and subtitles, keeping the timings.
 3. **Use the text**:

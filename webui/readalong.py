@@ -32,17 +32,20 @@ def readalong(text, segs, entry):
             if w.speaker is not None and w.speaker != speaker:  # a new speaker's turn
                 parts.append(f'<span class="spk">Speaker {w.speaker}</span>')
                 speaker = w.speaker
-            parts.append(f'<span class="w" data-s="{w.start:.2f}">{html.escape(w.text.strip())}</span>')
+            word = html.escape(w.text.strip())  # data-o: the saved text, to mark what an edit changes
+            parts.append(f'<span class="w" data-s="{w.start:.2f}" data-o="{word}">{word}</span>')
         words = " ".join(parts) or html.escape(seg.text)
         paragraphs.append(f'<p><span class="ts" data-s="{seg.start:.2f}">{fmt_dur(seg.start)}</span>'
                           f"{words}</p>")
     src = "/gradio_api/file=" + urllib.parse.quote(audio)
-    return (f'<div class="readalong" data-follow="1"><audio controls preload="metadata" src="{src}"></audio>'
-            f"{TOOLBAR}"
-            '<div class="ra-hint"><span class="read-only">Click any word to play from there.</span>'
-            '<span class="edit-only">Editing: type to fix words. <b>Alt+click</b> a word to hear it, '
-            '<b>Ctrl+Space</b> plays/pauses from the cursor, <b>Ctrl+Enter</b> saves, <b>Esc</b> '
-            "cancels. Timings are kept.</span></div>"
+    return (f'<div class="readalong" data-follow="1" tabindex="0"><div class="ra-head">'
+            f'<audio controls preload="metadata" src="{src}"></audio>{TOOLBAR}'
+            '<div class="ra-hint"><span class="read-only">Click a word to play from there · '
+            "<b>Space</b> play/pause · <b>← →</b> 5 s · <b>E</b> edit · <b>⛶ Focus</b> for a big "
+            "view</span>"
+            '<span class="edit-only">Editing — type to fix words (changed ones are marked). '
+            "<b>Alt+click</b> a word to hear it · <b>Ctrl+Space</b> play/pause from the cursor · "
+            "<b>Ctrl+Enter</b> save · <b>Esc</b> cancel. Timings are kept.</span></div></div>"
             f'<div class="ra-text">{"".join(paragraphs)}</div></div>')
 
 
@@ -54,7 +57,11 @@ TOOLBAR = """<div class="ra-bar">
     <option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option>
     <option>2</option></select></label>
   <label title="Keep the word being played in view"><input type="checkbox" data-act="follow" checked> Follow</label>
+  <button data-act="smaller" title="Smaller text">A−</button>
+  <button data-act="bigger" title="Bigger text">A+</button>
+  <button data-act="focus" class="ra-focus-btn" title="Big view of the whole window (Esc to leave)">⛶ Focus</button>
   <span class="ra-spacer"></span>
+  <span class="ra-dirty edit-only"></span>
   <button data-act="edit" class="read-only">✏️ Edit text</button>
   <button data-act="save" class="edit-only ra-primary">💾 Save</button>
   <button data-act="cancel" class="edit-only">✕ Cancel</button>
