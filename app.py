@@ -120,7 +120,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                             label="YouTube cookies.txt (only if YouTube still blocks the download)",
                             file_types=[".txt"], type="filepath")
                         with gr.Row():
-                            save_defaults_btn = gr.Button("💾 Save these as my defaults", size="sm")
+                            save_defaults_btn = gr.Button("💾 Save", size="sm")
                             reset_defaults_btn = gr.Button("↺ Built-in defaults", size="sm")
                         defaults_msg = gr.Markdown(
                             "Saves the language, models and options here, plus the Claude task, the "
@@ -240,7 +240,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                                       label="2. Model — MMS: most accurate · XLS-R: fastest · Whisper: best for names, slow (pause for it)")
             with gr.Row():
                 live_load = gr.Button("▶ Load model", variant="primary", scale=0, min_width=160)
-                live_save = gr.Button("💾 Use these every time for Live", scale=0, min_width=220)
+                live_save = gr.Button("💾 Save", scale=0, min_width=220)
             live_status = gr.Markdown("")  # the model: loading / ready
             with gr.Row():
                 with gr.Column(scale=2):
