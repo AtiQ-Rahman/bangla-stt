@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from stt import worker as worker_mod
+from stt import activity, worker as worker_mod
 from stt.worker import Worker, WorkerDied
 
 from conftest import sample
@@ -18,6 +18,10 @@ def _fake_serve(requests, replies, cancel):
             time.sleep(30)
             continue
         replies.put(("start", job_id, 16000 * 5))
+        if args["model"] == "loading":
+            replies.put(("activity", job_id, (7, "🧠 Loading the test model…")))
+            replies.put(("activity", job_id, (8, "🌐 Downloading…")))
+            replies.put(("activity", job_id, (8, None)))
         if args["model"] == "die":
             raise SystemExit(1)
         stopped = None
@@ -135,3 +139,24 @@ def test_stop_while_finding_speakers_kills_the_worker(monkeypatch):
     t = time.monotonic()
     assert w.speakers("x.wav", 0, None) is None
     assert time.monotonic() - t < 4 and not w.alive()
+
+
+def test_doing_shows_while_running():
+    with activity.doing("🌐 Downloading…") as now:
+        assert activity.current() == ["🌐 Downloading…"]
+        now("🤖 writing…")
+        assert activity.current() == ["🤖 writing…"]
+    assert activity.current() == []
+
+
+def test_worker_activity_shows_in_the_app_until_the_job_ends():
+    w = Worker(target=_fake_serve)
+    try:
+        seen = []
+        for kind, _ in run(w, "loading"):
+            if kind == "piece":
+                seen.append(activity.current())
+        assert seen[0] == ["🧠 Loading the test model…"]  # the download ended, the loading not yet
+        assert activity.current() == []  # the job's end clears what the worker left shown
+    finally:
+        w.kill()

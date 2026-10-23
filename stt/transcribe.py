@@ -7,7 +7,7 @@ import threading
 import unicodedata
 import warnings
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Iterator
 
@@ -15,6 +15,7 @@ import numpy as np
 import torch
 
 from stt import cached_first
+from stt.activity import doing
 from stt.audio import SAMPLE_RATE, split_on_silence
 
 # label -> (hugging face repo, extra kwargs)
@@ -73,6 +74,15 @@ def _one_at_a_time(fn):
     return locked
 
 
+def _shows_loading(fn):
+    """Show "Loading the … model" in the page header while fn loads a model."""
+    @wraps(fn)
+    def loading(model_name, *args):
+        with doing(f"🧠 Loading the {model_name.split(' - ')[0]} model…"):
+            return fn(model_name, *args)
+    return loading
+
+
 @dataclass
 class Word:
     start: float
@@ -91,6 +101,7 @@ class Segment:
 
 @_one_at_a_time
 @lru_cache(maxsize=1)
+@_shows_loading
 def _load(model_name: str, quantize: bool):
     from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
     from transformers.utils import logging as hf_logging
@@ -121,6 +132,7 @@ def _load(model_name: str, quantize: bool):
 
 @_one_at_a_time
 @lru_cache(maxsize=1)
+@_shows_loading
 def _load_whisper(model_name: str):
     from faster_whisper import WhisperModel
 
@@ -178,14 +190,15 @@ def _language_model():
     from huggingface_hub import hf_hub_download
     from pyctcdecode import LanguageModel
 
-    lm = cached_first(lambda **c: hf_hub_download(LM_REPO, "language_model/5gram.bin", **c))
-    unigrams = cached_first(lambda **c: hf_hub_download(LM_REPO, "language_model/unigrams.txt", **c))
-    with open(unigrams, encoding="utf-8") as f:
-        words = [w.strip() for w in f if w.strip()]
-    # Memory-map the model instead of copying it into RAM, so the OS can page it out.
-    config = kenlm.Config()
-    config.load_method = kenlm.LoadMethod.LAZY
-    return LanguageModel(kenlm.Model(lm, config), words, alpha=LM_ALPHA, beta=LM_BETA)
+    with doing("🧠 Loading the Bangla language model…"):
+        lm = cached_first(lambda **c: hf_hub_download(LM_REPO, "language_model/5gram.bin", **c))
+        unigrams = cached_first(lambda **c: hf_hub_download(LM_REPO, "language_model/unigrams.txt", **c))
+        with open(unigrams, encoding="utf-8") as f:
+            words = [w.strip() for w in f if w.strip()]
+        # Memory-map the model instead of copying it into RAM, so the OS can page it out.
+        config = kenlm.Config()
+        config.load_method = kenlm.LoadMethod.LAZY
+        return LanguageModel(kenlm.Model(lm, config), words, alpha=LM_ALPHA, beta=LM_BETA)
 
 
 @lru_cache(maxsize=2)

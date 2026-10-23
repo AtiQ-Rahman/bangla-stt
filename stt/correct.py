@@ -5,6 +5,8 @@ import os
 import urllib.request
 from typing import Iterator
 
+from stt.activity import doing
+
 OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 DEFAULT_LLM = "gemma3:4b"
 
@@ -65,11 +67,12 @@ def _generate(prompt: str, model: str) -> Iterator[str]:
                        "options": {"temperature": 0}}).encode()
     req = urllib.request.Request(f"{OLLAMA_URL}/api/generate", body,
                                  {"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=600) as r:
+    with doing(f"🤖 Ollama is loading {model}…") as now, urllib.request.urlopen(req, timeout=600) as r:
         for line in r:
             msg = json.loads(line)
             if "error" in msg:
                 raise RuntimeError(msg["error"])
+            now(f"🤖 {model} is writing…")
             yield msg.get("response", "")
 
 

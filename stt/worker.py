@@ -13,6 +13,8 @@ import threading
 import time
 from typing import Iterator
 
+from stt import activity
+
 
 STOP_GRACE_SEC = 3.0  # how long a job may take to stop by itself before the worker is killed
 
@@ -35,9 +37,12 @@ def _serve(requests, replies, cancel):
     """Worker process: run transcribe() for each request, streaming the pieces back."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)  # Ctrl+C is for the app; it ends us
     threading.Thread(target=_exit_with_parent, daemon=True).start()
+    from stt import activity
     from stt.audio import load_audio
     from stt.transcribe import transcribe
 
+    job_id = None
+    activity.forward = lambda key, text: replies.put(("activity", job_id, (key, text)))
     while True:
         job_id, args = requests.get()
         cancel.clear()
@@ -125,7 +130,7 @@ class Worker:
                 self._start()
             job_id = next(self._ids)
             self._requests.put((job_id, args))
-            finished, cancelled_at = False, None
+            finished, cancelled_at, shown = False, None, set()
             try:
                 while True:
                     try:
@@ -147,6 +152,10 @@ class Worker:
                         continue
                     if reply_id != job_id:  # left over from a job that was stopped
                         continue
+                    if kind == "activity":  # e.g. loading or downloading a model
+                        shown.add(value[0])
+                        activity.show((self, value[0]), value[1])
+                        continue
                     if kind == "end":
                         finished = True
                         if value == "cancelled":
@@ -159,6 +168,8 @@ class Worker:
                         self.loaded = (model, quantize)
                     yield kind, value
             finally:
+                for key in shown:  # the worker may have been killed while showing it
+                    activity.show((self, key), None)
                 if not finished:  # stopped from outside: end the job, or the worker
                     self._stop_job(job_id)
 

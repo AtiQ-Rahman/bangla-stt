@@ -9,6 +9,7 @@ from pathlib import Path
 
 import gradio as gr
 
+from stt import activity
 from stt.audio import browser_profile
 from stt.transcribe import LANGUAGE_MODELS, LM_RAM_GB, RAM_NEEDED_GB
 from stt.worker import WORKER
@@ -69,9 +70,13 @@ def ram_level(avail: float) -> str:
 
 
 def ram_status() -> str:
+    """The header's badge: free RAM, then what goes on in the background (internet, models)."""
     avail, total = mem_gb()
     icon = {"ok": "🟢", "low": "🟡", "critical": "🔴"}[ram_level(avail)]
-    return f"{icon} Free RAM **{avail:.1f} GB** / {total:.0f} GB"
+    now = activity.current()
+    if not now and WORKER.alive() and WORKER.loaded:
+        now = [f"🧠 {WORKER.loaded[0].split(' - ')[0]} is loaded"]
+    return f"{icon} Free RAM **{avail:.1f} GB** / {total:.0f} GB" + "".join(f"  \n{line}" for line in now)
 
 
 def ram_tick(prev_level: str):

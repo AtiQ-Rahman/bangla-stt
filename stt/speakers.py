@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
+from stt.activity import doing
 from stt.transcribe import Segment, Word
 
 MODEL_DIR = Path.home() / ".cache" / "bangla-stt" / "diarization"
@@ -19,6 +20,13 @@ EMBEDDING = MODEL_DIR / "wespeaker_en_voxceleb_resnet34_LM.onnx"
 
 
 def _download():
+    if SEGMENTATION.exists() and EMBEDDING.exists():
+        return
+    with doing("🌐 Downloading the speaker models (first time only)…"):
+        _fetch()
+
+
+def _fetch():
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     if not SEGMENTATION.exists():
         archive = MODEL_DIR / "segmentation.tar.bz2"
@@ -38,6 +46,11 @@ def _diarizer():
     import sherpa_onnx
 
     _download()
+    with doing("🧠 Loading the speaker models…"):
+        return _build(sherpa_onnx)
+
+
+def _build(sherpa_onnx):
     config = sherpa_onnx.OfflineSpeakerDiarizationConfig(
         segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
             pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model=str(SEGMENTATION))),

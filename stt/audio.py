@@ -7,6 +7,8 @@ from pathlib import Path
 import librosa
 import numpy as np
 
+from stt.activity import doing
+
 SAMPLE_RATE = 16000
 
 # yt-dlp needs a JS runtime (deno) to solve YouTube's challenges; the pip
@@ -79,7 +81,8 @@ def download_youtube(url: str, out_dir: Path, cookies: str | None = None,
         "noprogress": True,
         "noplaylist": True,
     }
-    path, info = _download(url, opts, cookies, browser)
+    with doing("🌐 Downloading the audio from YouTube…"):
+        path, info = _download(url, opts, cookies, browser)
     return path, info.get("title") or "youtube"
 
 
@@ -96,7 +99,8 @@ def download_youtube_video(url: str, out_dir: Path, cookies: str | None = None,
         "noprogress": True,
         "noplaylist": True,
     }
-    path, info = _download(url, opts, cookies, browser)
+    with doing("🌐 Downloading the video from YouTube…"):
+        path, info = _download(url, opts, cookies, browser)
     return path.with_suffix(".mp4"), info.get("title") or "youtube"
 
 

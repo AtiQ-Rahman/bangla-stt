@@ -521,7 +521,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                                             use_learned, use_browser, claude_task, llm, batch_lang],
                             defaults_msg)
     reset_defaults_btn.click(reset_defaults, None, default_outputs + [defaults_msg])
-    gr.Timer(5).tick(ram_tick, ram_state, [ram, ram_state, alert], show_progress="hidden").then(
+    gr.Timer(2).tick(ram_tick, ram_state, [ram, ram_state, alert], show_progress="hidden").then(
         None, alert, None, js="(signal) => { if (signal) window.sttBeep && window.sttBeep(); }")
 
 

@@ -12,4 +12,7 @@ def cached_first(load):
     try:
         return load(local_files_only=True)
     except Exception:  # each library raises its own "not in cache" error
-        return load(local_files_only=False)
+        from stt.activity import doing
+
+        with doing("🌐 Downloading a model from the internet (first time only)…"):
+            return load(local_files_only=False)
