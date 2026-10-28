@@ -25,7 +25,7 @@ from webui.controls import (busy_buttons, clear_results, enable_if, idle_buttons
                             stopped, text_choices)
 from webui.exporting import export_files, export_translation, export_video
 from webui.fixing import refresh_llms, resume_correct, run_correct
-from webui.look import BEEP_JS, copy_button, CSS, READALONG_JS, step, THEME
+from webui.look import BEEP_JS, copy_button, CSS, PAGE_CSS, READALONG_JS, step, THEME
 from webui.opening import (follow_tick, history_bulk_ask, history_bulk_delete, history_choices,
                            history_delete, history_open, history_preview, history_search,
                            history_ticks, open_queue_item, stop_following)
@@ -57,8 +57,8 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     batch_queue = gr.State([])  # the Batch tab's items: {id, kind, src, name, status, language}
 
     with gr.Row(elem_id="header"):
-        gr.Markdown("# 🎙️ Bangla & English Speech-to-Text\n"
-                    "Runs entirely on this PC — no audio is sent anywhere.")
+        gr.Markdown('# 🎙️ Bangla & English <span class="nowrap">Speech-to-Text</span>\n'
+                    "Runs entirely on this PC — no audio is sent anywhere.", elem_id="title")
         phone_note = gr.Markdown("", elem_id="phone-note")
         ram = gr.Markdown(ram_status(), elem_id="ram")
         alert = gr.HTML("", elem_id="alert", padding=False)
@@ -66,7 +66,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
         quit_yes = gr.Button("⏻ Yes, stop the app", variant="stop", size="sm", scale=0,
                              min_width=170, visible=False)
 
-    with gr.Tabs(overflow_behavior="wrap") as pages:
+    with gr.Tabs(overflow_behavior="wrap", elem_id="pages") as pages:
         with gr.Tab("🎙️ Transcribe", id="main"):
             with gr.Row():
                 # ---- Left: input ------------------------------------------------------------
@@ -184,7 +184,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                                 "⬆ Upload an edited .srt (e.g. fixed by Claude)", size="sm",
                                 file_types=[".srt", ".vtt"], type="filepath")
                         with gr.Tab("AI-fixed (local)"):
-                            with gr.Row(equal_height=True):
+                            with gr.Row(elem_classes="field-btns"):
                                 llm = gr.Dropdown([], label="Ollama model", allow_custom_value=True, scale=3)
                                 refresh = gr.Button("↻", scale=0, min_width=44)
                                 fix_btn = gr.Button("✨ Fix transcript", variant="primary", scale=2,
@@ -245,7 +245,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
 
                     step("③ Send to Claude")
                     with gr.Group():
-                        with gr.Row(equal_height=True):
+                        with gr.Row(equal_height=True, elem_classes="stack-phone"):
                             claude_text = gr.Radio(["Transcript"], value="Transcript", label="Text to send")
                             claude_task = gr.Dropdown(list(CLAUDE_TASKS), value=next(iter(CLAUDE_TASKS)),
                                                       label="Ask Claude to…")
@@ -259,14 +259,14 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                         "or posts. Pick the language and model here (the other settings are the Transcribe "
                         "tab's); each "
                         "recording is kept in **🕘 History**. A headset or a quiet room helps.")
-            with gr.Row(equal_height=True):
+            with gr.Row(equal_height=True, elem_classes="stack-phone"):
                 live_language = gr.Radio(["Bangla", "English"], value="Bangla", scale=1,
                                          label="1. Language you will speak")
                 live_model = gr.Radio(LIVE_MODELS["Bangla"], value=DEFAULT_MODEL, scale=3,
                                       label="2. Model — MMS: most accurate · XLS-R: fastest · Whisper: best for names, slow (pause for it)")
-            with gr.Row():
+            with gr.Row(elem_classes="even-phone"):
                 live_load = gr.Button("▶ Load model", variant="primary", scale=0, min_width=160)
-                live_save = gr.Button("💾 Save", scale=0, min_width=220)
+                live_save = gr.Button("💾 Save", scale=0, min_width=160)
             live_status = gr.Markdown("")  # the model: loading / ready
             with gr.Row():
                 with gr.Column(scale=2):
@@ -322,7 +322,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                         headers=["#", "Item", "Language", "Status", ""], value=[],
                         datatype=["number", "str", "str", "str", "str"], interactive=False, wrap=True,
                         column_widths=["48px", "45%", "90px", "25%", "90px"], elem_id="batch-table")
-                    with gr.Row(equal_height=True):
+                    with gr.Row(elem_classes=["field-btns", "wrap-phone"]):
                         batch_pick = gr.Dropdown([], multiselect=True, label="Remove from the queue",
                                                  scale=4)
                         batch_remove = gr.Button("🗑 Remove", scale=1, min_width=100)
@@ -334,7 +334,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
             history_query = gr.Textbox(show_label=False, container=False,
                                        placeholder="🔍 Search words in all transcripts…")
             history_found = gr.Markdown("")
-            with gr.Row(equal_height=True):
+            with gr.Row(elem_classes="field-btns"):
                 history_pick = gr.Dropdown(history.entries(), label="Saved transcriptions", scale=4)
                 history_refresh = gr.Button("↻", scale=0, min_width=44)
             history_info = gr.Markdown("")
@@ -607,7 +607,7 @@ def main():
         PHONE_NOTE["text"] = f"📱 Phone (same Wi-Fi): **https://{ip}:{args.port}** · user `{PHONE_USER}` · password `{password}`"
     # No footer links: the API docs, settings and run history are developer tools; History
     # above keeps the results. allowed_paths: History audio is played and downloaded from there.
-    demo.queue().launch(theme=THEME, css=CSS, head=BEEP_JS + READALONG_JS, footer_links=[], run_history=False,
+    demo.queue().launch(theme=THEME, css=CSS, head=BEEP_JS + READALONG_JS + PAGE_CSS, footer_links=[], run_history=False,
                         allowed_paths=[str(history.HISTORY_DIR)], prevent_thread_lock=True, quiet=True,
                         server_port=args.port, **options)
     print(f"Bangla STT is running at {demo.local_url}  —  press Ctrl+C here (or ⏻ Quit on the page) to stop it.", flush=True)

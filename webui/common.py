@@ -78,7 +78,9 @@ def ram_status() -> str:
     now = activity.current()
     if not now and WORKER.alive() and WORKER.loaded:
         now = [f"🧠 {WORKER.loaded[0].split(' - ')[0]} is loaded"]
-    return f"{icon} Free RAM **{avail:.1f} GB** / {total:.0f} GB" + "".join(f"  \n{line}" for line in now)
+    nb = "\u00a0"  # the RAM line stays whole on narrow phones
+    return (f"{icon}{nb}Free{nb}RAM{nb}**{avail:.1f}{nb}GB**{nb}/{nb}{total:.0f}{nb}GB"
+            + "".join(f"  \n{line}" for line in now))
 
 
 def ram_tick(prev_level: str):

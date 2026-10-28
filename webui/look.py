@@ -257,7 +257,9 @@ CSS = """
 .main.fill_width { max-width: 1280px !important; margin: 0 auto !important; width: 100% !important; }
 #header { align-items: center; border-bottom: 1px solid var(--border-color-primary); padding-bottom: 10px; }
 #header h1 { font-size: 1.75rem; margin: 0; }
+#header .nowrap { white-space: nowrap; }
 #header p { margin: 2px 0 0; color: var(--body-text-color-subdued); }
+#title { flex-grow: 2 !important; }
 #ram { text-align: right; font-size: 0.95rem; }
 #phone-note { text-align: center; font-size: 0.95rem; }
 .step-title { margin: 8px 0 0; font-size: 1.05rem; font-weight: 600; color: var(--color-accent); }
@@ -334,21 +336,44 @@ body.ra-focused { overflow: hidden; }
 #batch-table tbody tr:hover td { background: var(--color-accent-soft); }
 .hint p { margin: 0; color: var(--body-text-color-subdued); }
 .pbar a { color: var(--color-accent); font-weight: 600; }
+/* Blank Markdown and rows whose parts are all hidden still take a gap each: hide them */
+.block:has(> [data-testid=markdown-wrapper] span.md:empty), .row:not(:has(> *)) { display: none !important; }
+/* A button beside a dropdown sits level with its box instead of stretching to the label's height */
+.field-btns { align-items: flex-end; }
+.field-btns > button { margin-bottom: 10px; }  /* the dropdown block's bottom padding */
 /* Phones: the title gets its own line, RAM and Quit share the next one */
 @media (max-width: 640px) {
-  .main.fill_width { padding: 0 10px !important; }
   #header { flex-wrap: wrap; gap: 6px 10px; }
-  #header > :first-child, #phone-note { flex: 1 1 100% !important; min-width: 100% !important; }
-  #header h1 { font-size: 1.3rem; }
+  #title, #phone-note { flex: 1 1 100% !important; min-width: 100% !important; }
+  #header h1 { font-size: 1.2rem; }
   #phone-note { text-align: left; }
   #ram { flex: 1 1 0 !important; min-width: 0 !important; text-align: left; }
+  /* less padding so the four main tabs fit on one line */
+  .tab-container button[role=tab] { padding: 0 8px; }
+  .stack-phone { flex-wrap: wrap; }
+  .stack-phone > *, .stack-phone > .form > * { flex: 1 1 100% !important; min-width: 100% !important; }
+  .even-phone > button { flex: 1 1 0 !important; min-width: 0 !important; }
+  /* the box on its own line, its buttons side by side under it */
+  .wrap-phone { flex-wrap: wrap; }
+  .wrap-phone > :not(button) { flex: 1 1 100% !important; min-width: 100% !important; }
+  .wrap-phone > button { flex: 1 1 0 !important; min-width: 0 !important; margin-bottom: 0; }
   /* below 16px phones zoom the page in when a box is tapped */
   input, textarea, select { font-size: 16px !important; }
   .readalong.focus { padding: 8px 8px 10px; }
   .readalong.focus .ra-text { padding: 10px 12px; }
   .ra-text { padding: 8px 10px; }
 }
+@media (max-width: 360px) {
+  .tab-container button[role=tab] { padding: 0 5px; font-size: 13px; }
+  #header button { min-width: 70px !important; }
+}
 """
+
+# Gradio puts every css= selector inside .contain, so the page's own padding (16px 32px, too wide
+# on a phone) can only be reached from <head>.
+PAGE_CSS = """<style>
+@media (max-width: 640px) { .gradio-container .main.fill_width { padding: 12px !important; } }
+</style>"""
 
 
 def step(title: str) -> gr.HTML:

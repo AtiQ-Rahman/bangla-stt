@@ -37,6 +37,10 @@ features; this file is about the code and the lessons learned building it.
   Click only visible buttons (`b.offsetParent`): every tab's Audio has a Record button.
 - Never `pkill -f`/`pgrep -f` a pattern that also appears in the same shell command (it kills
   that shell); keep test servers' PIDs in a file.
+- Gradio prefixes every `css=` selector with `.gradio-container … .contain`, so rules for
+  elements above `.contain` (e.g. the page padding on `.main`) silently never match: put those in
+  `PAGE_CSS` (a `<style>` in `head`). Hidden components aren't rendered at all, and empty
+  Markdown/rows still cost a 16px gap (`look.CSS` hides them). Check layouts at 320/390/1280 px.
 - Values computed in browser JS cannot reach the server through `gr.State`; use a hidden
   component (`gr.Checkbox`/`gr.Textbox` with `visible=False` or a `.ra-hidden` class).
 - Gradio cancel of a generator only lands when the current `next()` returns, so Stop goes through
