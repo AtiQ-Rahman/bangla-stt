@@ -40,6 +40,13 @@ LANGUAGE_MODELS = {
     "Bangla": list(MODELS) + [m for m, spec in WHISPER_MODELS.items() if spec["language"] == "bn"],
     "English": [m for m, spec in WHISPER_MODELS.items() if spec["language"] == "en"],
 }
+# Whisper decoding options the user can change (Settings → Whisper options):
+# prompt: context and spellings for the decoder (e.g. "খবর: রাজশাহী, তারেক রহমান"); vad: Silero
+# voice detection drops non-speech before decoding; silence_guard: skip text Whisper invents over
+# pauses of 2 s or more (hallucination_silence_threshold); carry_text: each part sees the text
+# before it (better flow, but a mistake can repeat in a loop).
+WHISPER_OPTIONS = {"prompt": "", "vad": True, "silence_guard": True, "carry_text": True}
+SILENCE_GUARD_SEC = 2.0
 CT2_DIR = Path.home() / ".cache" / "bangla-stt" / "ct2"  # converted Whisper models
 
 # 5-gram Bangla word language model (~3.5 GB), shipped with the XLS-R model but
@@ -232,17 +239,19 @@ def unload() -> None:
 
 def transcribe(wav: np.ndarray, model_name: str = DEFAULT_MODEL, quantize: bool = True,
                use_lm: bool = True, offset: float = 0.0, hotwords: list[str] | None = None,
-               keep_from_sec: float = 0.0) -> Iterator[tuple[int, int, Segment | None]]:
+               keep_from_sec: float = 0.0, whisper: dict | None = None
+               ) -> Iterator[tuple[int, int, Segment | None]]:
     """Transcribe piece by piece, yielding (samples_done, total_samples, segment or None if silent).
 
     offset (seconds) is added to all timestamps, for audio cut out of a longer file.
     hotwords (names, special terms) are favoured by the decoder when the audio is close to them.
     keep_from_sec: audio before this point is only context (used when resuming); no words from it.
+    whisper: WHISPER_OPTIONS to change (Whisper models only).
     Text is Unicode NFC, so the same word is the same string whichever model wrote it (e.g. য়
     as one character or as য + nukta).
     """
     if model_name in WHISPER_MODELS:
-        pieces = _transcribe_whisper(wav, model_name, offset, hotwords, keep_from_sec)
+        pieces = _transcribe_whisper(wav, model_name, offset, hotwords, keep_from_sec, whisper)
     else:
         pieces = _transcribe_ctc(wav, model_name, quantize, use_lm, offset, hotwords=hotwords,
                                  keep_from_sec=keep_from_sec)
@@ -319,16 +328,20 @@ def _transcribe_ctc(wav: np.ndarray, model_name: str = DEFAULT_MODEL, quantize: 
 
 
 def _transcribe_whisper(wav: np.ndarray, model_name: str, offset: float, hotwords: list[str] | None,
-                        keep_from_sec: float = 0.0) -> Iterator[tuple[int, int, Segment | None]]:
+                        keep_from_sec: float = 0.0, whisper: dict | None = None
+                        ) -> Iterator[tuple[int, int, Segment | None]]:
     """Whisper: it finds sentences, punctuation (English) and word times by itself."""
     model = _load_whisper(model_name)
     spec = WHISPER_MODELS[model_name]
+    opts = {**WHISPER_OPTIONS, **(whisper or {})}
+    decode = {"initial_prompt": opts["prompt"].strip() or None, "vad_filter": bool(opts["vad"]),
+              "hallucination_silence_threshold": SILENCE_GUARD_SEC if opts["silence_guard"] else None}
     if spec.get("chunk_sec"):
-        yield from _whisper_chunks(model, spec, wav, offset, hotwords, keep_from_sec)
+        yield from _whisper_chunks(model, spec, wav, offset, hotwords, keep_from_sec, decode=decode)
         return
-    segments, _ = model.transcribe(wav, language=spec["language"], vad_filter=True,
-                                   word_timestamps=True,
-                                   hotwords=", ".join(hotwords) if hotwords else None)
+    segments, _ = model.transcribe(wav, language=spec["language"], word_timestamps=True,
+                                   condition_on_previous_text=bool(opts["carry_text"]),
+                                   hotwords=", ".join(hotwords) if hotwords else None, **decode)
     total = len(wav)
     for seg in segments:  # a generator: decoding happens as we iterate, so Stop works
         # Whisper words keep their leading space (" Stanford", ".edu"); _join() relies on it.
@@ -352,11 +365,14 @@ def _quietest(wav: np.ndarray, lo: int, hi: int, hop: int = 320) -> int:
 
 def _whisper_chunks(model, spec: dict, wav: np.ndarray, offset: float, hotwords: list[str] | None,
                     keep_from_sec: float, search_sec: float = 4.0, silence_rms: float = 1e-3,
-                    min_prob: float = 0.8) -> Iterator[tuple[int, int, Segment | None]]:
+                    min_prob: float = 0.8, decode: dict | None = None
+                    ) -> Iterator[tuple[int, int, Segment | None]]:
     """Whisper on chunks of about spec["chunk_sec"], each cut at the quietest moment of its last
     search_sec; near-silent chunks are skipped (Whisper would invent text for them). Trailing
     words that are zero-length or below min_prob are dropped (test clip CER 8.4% -> 3.9%).
-    hotwords are not used: as a prompt they made this model drop text (CER 3.9% -> 11.4%)."""
+    hotwords are not used: as a prompt they made this model drop text (CER 3.9% -> 11.4%); a
+    prompt the user writes (decode["initial_prompt"]) is, on every chunk, at their own risk.
+    decode: more model.transcribe() options (prompt, VAD, silence guard)."""
     size, search = int(spec["chunk_sec"] * SAMPLE_RATE), int(search_sec * SAMPLE_RATE)
     total, s = len(wav), int(keep_from_sec * SAMPLE_RATE)
     while s < total:
@@ -366,7 +382,8 @@ def _whisper_chunks(model, spec: dict, wav: np.ndarray, offset: float, hotwords:
         if len(chunk) > SAMPLE_RATE // 4 and float(np.sqrt((chunk ** 2).mean())) > silence_rms:
             segments, _ = model.transcribe(chunk, language=spec["language"], beam_size=1,
                                            without_timestamps=True, condition_on_previous_text=False,
-                                           word_timestamps=True, vad_filter=False)
+                                           word_timestamps=True,
+                                           **{"vad_filter": False, **(decode or {})})
             t0 = offset + s / SAMPLE_RATE
             found = [w for seg in segments for w in seg.words or []]
             # The model invents words at a chunk's end (zero-length, or unsure): drop them.

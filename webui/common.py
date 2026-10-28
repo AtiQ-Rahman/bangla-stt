@@ -2,7 +2,9 @@
 import atexit
 import os
 import shutil
+import signal
 import tempfile
+import threading
 import time
 import types
 from pathlib import Path
@@ -194,3 +196,10 @@ def fresh_media_path(stem: str) -> Path:
 
 def cookie_args(cookies_file, use_browser):
     return cookies_file, (BROWSER if use_browser else None)
+
+
+def quit_app():
+    """The ⏻ Quit button: stop the app like a `kill` would (the worker stops with it), just
+    after answering the page."""
+    threading.Timer(0.5, os.kill, (os.getpid(), signal.SIGTERM)).start()
+    return "⏻ Bangla STT has stopped — you can close this tab."

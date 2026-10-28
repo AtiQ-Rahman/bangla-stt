@@ -1,13 +1,14 @@
 """Transcribing (and resuming) with live progress; downloads follow text edits."""
 import shutil
 import time
+import unicodedata
 from pathlib import Path
 
 import gradio as gr
 
 from stt import dictionary, history
 from stt.audio import cut_clip
-from stt.export import bangla_digits
+from stt.export import bangla_digits, parse_srt, srt_from_cues
 from stt.langid import detect
 from stt.retime import retime
 from stt.transcribe import Segment, to_srt, to_text, Word, WHISPER_MODELS
@@ -31,7 +32,7 @@ def _work(job: dict, entry: Path, prior: list[Segment], at: float):
     load_from = max(begin, at - 3.0) if prior else at
     was_loaded = WORKER.is_loaded(job["model"], job["quantize"])
     pieces = WORKER.transcribe(job["audio"], load_from, job["end"], job["model"], job["quantize"],
-                               job["use_lm"], job["words"], at - load_from)
+                               job["use_lm"], job["words"], at - load_from, job.get("whisper"))
     try:
         _, samples = next(pieces)  # ("start", samples) once the worker has read the audio
     except (WorkerDied, RuntimeError) as e:
@@ -67,9 +68,15 @@ def _work(job: dict, entry: Path, prior: list[Segment], at: float):
         else:
             finished = True
         if finished and job.get("speakers"):  # over the whole range, so numbers stay the same
-            live["phase"] = "speakers"
-            yield segments, 1.0, resume_at, audio_sec, was_loaded, "speakers"
-            turns = WORKER.speakers(job["audio"], begin, job["end"])
+            live["phase"], live["speakers_frac"] = "speakers", 0.0
+            yield segments, 0.0, resume_at, audio_sec, was_loaded, "speakers"
+            turns = []
+            for kind, value in WORKER.speaker_steps(job["audio"], begin, job["end"]):
+                if kind == "progress":
+                    live["speakers_frac"] = value
+                    yield segments, value, resume_at, audio_sec, was_loaded, "speakers"
+                else:
+                    turns = value
             if turns is None:  # Stop
                 finished = False
             else:
@@ -92,8 +99,13 @@ def stage(message: str) -> tuple:
     return (gr.skip(),) * 4 + (message, gr.skip(), bar(message)) + (gr.skip(),) * 3
 
 
+def speakers_stage(frac: float, first: tuple[float, float] | None = None) -> tuple:
+    message = f"⏳ Finding who speaks when (speaker labels)… {frac:.0%}{time_left(first, frac)}"
+    return (gr.skip(),) * 4 + (message, gr.skip(), bar(message, frac)) + (gr.skip(),) * 3
+
+
 def make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers=False,
-             use_learned=True):
+             use_learned=True, whisper=None):
     start, end = parse_time(start), parse_time(end)
     if start and end and end <= start:
         raise gr.Error("End time must be after start time.")
@@ -104,15 +116,20 @@ def make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, d
     use_lm = use_lm and model_name not in WHISPER_MODELS  # Whisper has its own
     return {"audio": audio, "title": title or Path(audio).stem, "model": model_name,
             "quantize": quantize, "use_lm": use_lm, "words": words, "start": start, "end": end,
-            "bn_digits": bool(digits), "speakers": bool(speakers)}
+            "bn_digits": bool(digits), "speakers": bool(speakers), "whisper": whisper or {}}
+
+
+def whisper_options(prompt, vad, silence_guard, carry_text) -> dict:
+    return {"prompt": (prompt or "").strip(), "vad": bool(vad), "silence_guard": bool(silence_guard),
+            "carry_text": bool(carry_text)}
 
 
 def run(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers,
-        use_learned, video, source):
+        use_learned, video, source, prompt="", vad=True, silence_guard=True, carry_text=True):
     if not audio:
         raise gr.Error("Add some audio first: get it from YouTube, upload a video or audio file, or record.")
     job = make_job(audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers,
-                   use_learned)
+                   use_learned, whisper_options(prompt, vad, silence_guard, carry_text))
     if video:
         job["video"] = video  # so "video with subtitles" also works when reopened from History
     if source:
@@ -157,11 +174,12 @@ def _job(job, entry, prior, at):
                             visible=True, label="Transcribed part")
         except RuntimeError:
             pass
-    t0 = first = None
+    t0 = first = speakers_first = None
     segments, audio_sec, was_loaded = list(prior), 0.0, True
     for segments, frac, resume_at, audio_sec, was_loaded, phase in _work(job, entry, prior, at):
         if phase == "speakers":
-            yield stage("⏳ Finding who speaks when (speaker labels)…")
+            yield speakers_stage(frac, speakers_first)
+            speakers_first = speakers_first or (time.monotonic(), frac)
             continue
         if t0 is None:  # before the model loads
             t0 = time.monotonic()
@@ -224,3 +242,22 @@ def edited_subtitles(text, segs, title, suffix):
     path = out_file(title, suffix)
     path.write_text(srt, encoding="utf-8")
     return file_button(path), srt
+
+
+def uploaded_subtitles(path, segs, title, entry, language):
+    """An .srt edited elsewhere (e.g. by Claude) becomes the result: its text the transcript,
+    its cues the subtitles as they are, and its corrected words are learned."""
+    cues = parse_srt(Path(path).read_text(encoding="utf-8", errors="replace")) if path else []
+    if not cues:
+        raise gr.Error("No subtitles found in that file — is it an .srt?")
+    text, last = "", None
+    for start, end, words in cues:  # a new paragraph after a pause, like the transcript
+        text += ("" if last is None else "\n\n" if start - last >= 1.5 else " ") + words
+        last = end
+    text = unicodedata.normalize("NFC", text)
+    srt = unicodedata.normalize("NFC", srt_from_cues(cues))
+    srt_path = out_file(title, ".srt")
+    srt_path.write_text(srt, encoding="utf-8")
+    txt_button = edited_text(text, title, entry, "transcript.txt")
+    gr.Info(f"Loaded {len(cues)} subtitles from the file.")
+    return text, txt_button, file_button(srt_path), srt, learn_edits(text, segs, entry, language)

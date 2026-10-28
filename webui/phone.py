@@ -3,6 +3,7 @@
 Phone browsers only allow the microphone on HTTPS pages, so phone mode serves HTTPS with a
 self-signed certificate made on first use (the phone warns about it once).
 """
+import os
 import secrets
 import socket
 import subprocess
@@ -10,6 +11,8 @@ from pathlib import Path
 
 CERT_DIR = Path(__file__).resolve().parent.parent / "certs"
 USER = "stt"
+PASSWORD_FILE = Path(os.environ.get("STT_CONFIG_DIR", Path.home() / ".config" / "bangla-stt")) / "phone-password"
+NOTE = {"text": ""}  # the phone address and password, shown at the top of the page
 
 
 def lan_ip() -> str:
@@ -38,3 +41,15 @@ def certificate(ip: str) -> tuple[Path, Path]:
 
 def new_password() -> str:
     return secrets.token_urlsafe(6)
+
+
+def saved_password() -> str:
+    """The same password every time (the shortcut starts phone mode without a terminal to show
+    a new one in): made once, kept in the config folder."""
+    if PASSWORD_FILE.exists() and PASSWORD_FILE.read_text().strip():
+        return PASSWORD_FILE.read_text().strip()
+    PASSWORD_FILE.parent.mkdir(parents=True, exist_ok=True)
+    password = new_password()
+    PASSWORD_FILE.write_text(password)
+    PASSWORD_FILE.chmod(0o600)
+    return password

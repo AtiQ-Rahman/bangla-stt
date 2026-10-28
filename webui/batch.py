@@ -10,7 +10,7 @@ from stt.audio import cut_clip, download_youtube
 from stt.langid import detect
 from stt.transcribe import LANGUAGE_MODELS
 from webui.common import bar, check_ram, cookie_args, time_left, VIDEO_EXT, WORK_DIR
-from webui.transcribing import _work, make_job
+from webui.transcribing import _work, make_job, whisper_options
 
 
 _queue_ids = iter(range(1, 10**9))
@@ -54,7 +54,7 @@ def clear_queue():
 
 
 def run_batch(queue, lang_choice, quantize, use_lm, digits, speakers, use_learned, cookies_file,
-              use_browser):
+              use_browser, vad=True, silence_guard=True, carry_text=True):
     """Transcribe the queued items that aren't done yet, one after another; each goes to History."""
     queue = [dict(item) for item in queue]  # this run's copy; yielded back to the page
     todo = [item for item in queue if item["status"] != "✅ done"]
@@ -83,8 +83,9 @@ def run_batch(queue, lang_choice, quantize, use_lm, digits, speakers, use_learne
             language = lang_choice if lang_choice != "Auto" else detect(audio)[0]
             item["language"] = language
             model = LANGUAGE_MODELS[language][0]
+            # The prompt is left out: it is about one recording, not every item in the queue.
             job = make_job(str(audio), title, model, quantize, use_lm, "", "", "", digits, speakers,
-                           use_learned)
+                           use_learned, whisper_options("", vad, silence_guard, carry_text))
             if item["kind"] == "file" and Path(item["src"]).suffix.lower() in VIDEO_EXT:
                 job["video"] = item["src"]
             if item["kind"] == "link":

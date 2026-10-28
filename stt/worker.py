@@ -50,7 +50,11 @@ def _serve(requests, replies, cancel):
             wav = load_audio(args["path"], args["load_from"], args["end"])
             if args.get("task") == "speakers":
                 from stt.speakers import diarize
-                replies.put(("speakers", job_id, diarize(wav, offset=args["load_from"])))
+                def progress(frac):
+                    replies.put(("progress", job_id, frac))
+                    return cancel.is_set()
+                turns = diarize(wav, offset=args["load_from"], progress=progress)
+                replies.put(("end", job_id, "cancelled") if cancel.is_set() else ("speakers", job_id, turns))
                 replies.put(("end", job_id, None))
                 continue
             replies.put(("start", job_id, len(wav)))
@@ -58,7 +62,8 @@ def _serve(requests, replies, cancel):
             if len(wav):
                 for done, total, seg in transcribe(
                         wav, args["model"], args["quantize"], args["use_lm"], offset=args["load_from"],
-                        hotwords=args["words"], keep_from_sec=args["keep_from_sec"]):
+                        hotwords=args["words"], keep_from_sec=args["keep_from_sec"],
+                        whisper=args.get("whisper")):
                     replies.put(("piece", job_id, (done, total, seg)))
                     if cancel.is_set():
                         stopped = "cancelled"
@@ -104,24 +109,27 @@ class Worker:
     def is_loaded(self, model: str, quantize: bool) -> bool:
         return self.alive() and self.loaded in ((model, quantize), (model, None))
 
-    def transcribe(self, path, load_from, end, model, quantize, use_lm, words, keep_from_sec
-                   ) -> Iterator[tuple[str, object]]:
+    def transcribe(self, path, load_from, end, model, quantize, use_lm, words, keep_from_sec,
+                   whisper=None) -> Iterator[tuple[str, object]]:
         """Yields ("start", samples) once the audio is read, then ("piece", (done, total, segment))
         for each piece, and ("cancelled", None) last if cancel() stopped it."""
         yield from self._job({"path": str(path), "load_from": load_from, "end": end, "model": model,
                               "quantize": quantize, "use_lm": use_lm, "words": words,
-                              "keep_from_sec": keep_from_sec}, model, quantize)
+                              "keep_from_sec": keep_from_sec, "whisper": whisper}, model, quantize)
 
     def speakers(self, path, start, end) -> list[tuple[float, float, int]] | None:
         """Who speaks when in path from start to end: (start, end, speaker) turns; None if Stop
         ended it."""
-        for kind, value in self._job({"task": "speakers", "path": str(path), "load_from": start or 0.0,
-                                      "end": end}, None, None):
-            if kind == "speakers":
+        for kind, value in self.speaker_steps(path, start, end):
+            if kind != "progress":
                 return value
-            if kind == "cancelled":
-                return None
         return []
+
+    def speaker_steps(self, path, start, end) -> Iterator[tuple[str, object]]:
+        """speakers() step by step: ("progress", fraction) as it goes, then ("speakers", turns),
+        or ("cancelled", None) if Stop ended it."""
+        yield from self._job({"task": "speakers", "path": str(path), "load_from": start or 0.0,
+                              "end": end}, None, None)
 
     def _job(self, args, model, quantize) -> Iterator[tuple[str, object]]:
         """Send one request to the worker and yield its replies until it ends."""

@@ -3,6 +3,7 @@
 Uses the pyannote 3.0 segmentation model and a WeSpeaker voice-embedding model, downloaded once
 from sherpa-onnx's GitHub releases into ~/.cache/bangla-stt/diarization.
 """
+import os
 import tarfile
 import urllib.request
 from functools import lru_cache
@@ -39,6 +40,8 @@ def _fetch():
         part = EMBEDDING.with_suffix(".part")
         urllib.request.urlretrieve(f"{RELEASES}/speaker-recongition-models/{EMBEDDING.name}", part)
         part.rename(EMBEDDING)
+# sherpa-onnx uses one thread unless told; physical cores (hyper-threads don't help ONNX).
+THREADS = max(1, (os.cpu_count() or 2) // 2)
 
 
 @lru_cache(maxsize=1)
@@ -53,17 +56,22 @@ def _diarizer():
 def _build(sherpa_onnx):
     config = sherpa_onnx.OfflineSpeakerDiarizationConfig(
         segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
-            pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model=str(SEGMENTATION))),
-        embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=str(EMBEDDING)),
+            pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model=str(SEGMENTATION)),
+            num_threads=THREADS),
+        embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=str(EMBEDDING), num_threads=THREADS),
         clustering=sherpa_onnx.FastClusteringConfig(num_clusters=-1, threshold=0.5),
         min_duration_on=0.3, min_duration_off=0.5)
     return sherpa_onnx.OfflineSpeakerDiarization(config)
 
 
-def diarize(wav: np.ndarray, offset: float = 0.0) -> list[tuple[float, float, int]]:
+def diarize(wav: np.ndarray, offset: float = 0.0, progress=None) -> list[tuple[float, float, int]]:
     """(start, end, speaker) turns for 16 kHz audio; speakers are numbered 1, 2, … in order of
-    first appearance; offset (seconds) is added to the times."""
-    turns = _diarizer().process(wav).sort_by_start_time()
+    first appearance; offset (seconds) is added to the times. progress(fraction) is called as it
+    goes; a true return value aborts (then the turns found so far come back)."""
+    def report(done, total):
+        return int(bool(progress(done / max(total, 1))))
+
+    turns = _diarizer().process(wav, callback=report if progress else None).sort_by_start_time()
     numbers: dict[int, int] = {}
     out = []
     for turn in turns:

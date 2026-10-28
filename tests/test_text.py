@@ -1,5 +1,5 @@
 """Turning timed segments into text, subtitles and other formats."""
-from stt.export import bangla_digits, to_vtt
+from stt.export import bangla_digits, parse_srt, to_vtt
 from stt.transcribe import Segment, Word, _join, to_srt, to_text
 
 
@@ -75,3 +75,9 @@ def test_speaker_turns_keep_spaces_between_whisper_chunks():
     segs = [Segment(0, 2, "করা হয়েছে", [Word(0, 1, "করা", 1), Word(1, 2, " হয়েছে", 1)]),
             Segment(2, 4, "বিশ অক্টোবর", [Word(2, 3, "বিশ", 1), Word(3, 4, " অক্টোবর", 1)])]
     assert to_text(segs) == "Speaker 1: করা হয়েছে বিশ অক্টোবর"
+
+
+def test_parse_srt_edited_elsewhere():
+    # BOM and Windows line ends (Notepad), a cue over two lines, a VTT-style "." in the time
+    text = "﻿1\r\n00:00:01,000 --> 00:00:02,500\r\nআমি\r\nভালো\r\n\r\n2\n00:00:04.2 --> 00:00:05,000\nআছি\n"
+    assert parse_srt(text) == [(1.0, 2.5, "আমি ভালো"), (4.2, 5.0, "আছি")]

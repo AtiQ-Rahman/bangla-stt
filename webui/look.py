@@ -259,6 +259,7 @@ CSS = """
 #header h1 { font-size: 1.75rem; margin: 0; }
 #header p { margin: 2px 0 0; color: var(--body-text-color-subdued); }
 #ram { text-align: right; font-size: 0.95rem; }
+#phone-note { text-align: center; font-size: 0.95rem; }
 .step-title { margin: 8px 0 0; font-size: 1.05rem; font-weight: 600; color: var(--color-accent); }
 #claude-btn { background: #c96442; color: white; border: none; }
 #claude-btn:hover { background: #b4573a; }
@@ -333,8 +334,51 @@ body.ra-focused { overflow: hidden; }
 #batch-table tbody tr:hover td { background: var(--color-accent-soft); }
 .hint p { margin: 0; color: var(--body-text-color-subdued); }
 .pbar a { color: var(--color-accent); font-weight: 600; }
+/* Phones: the title gets its own line, RAM and Quit share the next one */
+@media (max-width: 640px) {
+  .main.fill_width { padding: 0 10px !important; }
+  #header { flex-wrap: wrap; gap: 6px 10px; }
+  #header > :first-child, #phone-note { flex: 1 1 100% !important; min-width: 100% !important; }
+  #header h1 { font-size: 1.3rem; }
+  #phone-note { text-align: left; }
+  #ram { flex: 1 1 0 !important; min-width: 0 !important; text-align: left; }
+  /* below 16px phones zoom the page in when a box is tapped */
+  input, textarea, select { font-size: 16px !important; }
+  .readalong.focus { padding: 8px 8px 10px; }
+  .readalong.focus .ra-text { padding: 10px 12px; }
+  .ra-text { padding: 8px 10px; }
+}
 """
 
 
 def step(title: str) -> gr.HTML:
     return gr.HTML(f'<div class="step-title">{title}</div>', padding=False)
+
+
+# Runs in the browser: copy a box's whole text. The clipboard API is blocked on plain http
+# (the phone link over the LAN), so it falls back to a hidden textarea + execCommand.
+COPY_JS = """
+async (text) => {
+    const btn = document.getElementById("%s");
+    const say = (msg) => {
+        if (!btn) return;
+        const old = btn.dataset.label || (btn.dataset.label = btn.textContent);
+        btn.textContent = msg; setTimeout(() => { btn.textContent = old; }, 1500);
+    };
+    if (!(text || "").trim()) { say("Nothing to copy yet"); return; }
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
+        const area = document.createElement("textarea");
+        area.value = text; document.body.appendChild(area); area.select();
+        ok = document.execCommand("copy"); area.remove();
+    }
+    say(ok ? "✓ Copied" : "⚠️ Copy blocked: select the text and press Ctrl+C");
+}
+"""
+
+
+def copy_button(box: gr.Textbox, elem_id: str) -> gr.Button:
+    """A "Copy all" button under box; copying happens in the browser only."""
+    btn = gr.Button("📋 Copy all", size="sm", elem_id=elem_id)
+    btn.click(None, box, None, js=COPY_JS % elem_id)
+    return btn

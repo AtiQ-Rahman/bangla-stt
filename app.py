@@ -20,16 +20,16 @@ from webui.chaptering import claude_prompt, make_chapters, saved_chapters
 from webui.claude import claude_sent, CLAUDE_TASKS, SEND_TO_CLAUDE_JS
 from webui.dictating import (live_abandoned, live_chunk, live_clear as live_clear_fn, live_ready,
                              live_selected, live_start, live_stop, live_stopping)
-from webui.common import bar_html, BROWSER, idle_unloader, ram_status, ram_tick
+from webui.common import bar_html, BROWSER, idle_unloader, quit_app, ram_status, ram_tick
 from webui.controls import (busy_buttons, clear_results, enable_if, idle_buttons, pick_language,
                             stopped, text_choices)
 from webui.exporting import export_files, export_translation, export_video
 from webui.fixing import refresh_llms, resume_correct, run_correct
-from webui.look import BEEP_JS, CSS, READALONG_JS, step, THEME
+from webui.look import BEEP_JS, copy_button, CSS, READALONG_JS, step, THEME
 from webui.opening import (follow_tick, history_bulk_ask, history_bulk_delete, history_choices,
                            history_delete, history_open, history_preview, history_search,
                            history_ticks, open_queue_item, stop_following)
-from webui.phone import USER as PHONE_USER, certificate, lan_ip, new_password
+from webui.phone import NOTE as PHONE_NOTE, USER as PHONE_USER, certificate, lan_ip, PASSWORD_FILE, saved_password
 from webui.readalong import EMPTY as READALONG_EMPTY, readalong, save_readalong
 from webui import watch
 from webui.settings import (apply_defaults, apply_live_defaults, default_llm, LIVE_MODELS, live_models,
@@ -37,7 +37,7 @@ from webui.settings import (apply_defaults, apply_live_defaults, default_llm, LI
 from webui.sources import (audio_changed, detect_language, get_audio_file, get_video_file,
                            get_youtube, get_youtube_video, selected_part, show_length)
 from webui.transcribing import (edited_subtitles, edited_text, learn_edits, learned_words, resume, run,
-                                set_learned_words)
+                                set_learned_words, uploaded_subtitles)
 
 threading.Thread(target=idle_unloader, daemon=True).start()
 
@@ -59,16 +59,20 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     with gr.Row(elem_id="header"):
         gr.Markdown("# 🎙️ Bangla & English Speech-to-Text\n"
                     "Runs entirely on this PC — no audio is sent anywhere.")
+        phone_note = gr.Markdown("", elem_id="phone-note")
         ram = gr.Markdown(ram_status(), elem_id="ram")
         alert = gr.HTML("", elem_id="alert", padding=False)
+        quit_btn = gr.Button("⏻ Quit", size="sm", scale=0, min_width=90)
+        quit_yes = gr.Button("⏻ Yes, stop the app", variant="stop", size="sm", scale=0,
+                             min_width=170, visible=False)
 
-    with gr.Tabs() as pages:
+    with gr.Tabs(overflow_behavior="wrap") as pages:
         with gr.Tab("🎙️ Transcribe", id="main"):
             with gr.Row():
                 # ---- Left: input ------------------------------------------------------------
                 with gr.Column(scale=2):
                     step("① Get the audio")
-                    with gr.Tabs(elem_classes="source"):
+                    with gr.Tabs(elem_classes="source", overflow_behavior="wrap"):
                         with gr.Tab("▶ YouTube"):
                             youtube_url = gr.Textbox(show_label=False, container=False,
                                                      placeholder="Paste a YouTube link here…")
@@ -106,6 +110,20 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                             info="Helps the right spelling of names win when the audio sounds close to them.")
                         use_learned = gr.Checkbox(
                             value=True, label="Also use the words I corrected before (learned from my edits)")
+                        with gr.Accordion("Whisper options (Whisper models only)", open=False):
+                            w_prompt = gr.Textbox(
+                                label="Prompt for this recording (optional)", lines=2,
+                                placeholder="e.g. সংবাদ: রাজশাহী, তারেক রহমান, প্রথম আলো",
+                                info="Context, names and spellings Whisper should follow. Also used "
+                                     "by Whisper medium Bangla, where it can make it skip words: "
+                                     "keep it short and check the result.")
+                            w_vad = gr.Checkbox(value=True, label="Skip non-speech (VAD) — fewer "
+                                                                  "made-up lines over music and silence")
+                            w_silence = gr.Checkbox(value=True, label="Drop text Whisper invents in "
+                                                                      "pauses of 2 s or more")
+                            w_carry = gr.Checkbox(value=True, label="Let each part see the text "
+                                                                    "before it (untick if a line "
+                                                                    "repeats over and over)")
                         learned_box = gr.Textbox(
                             label="Words learned from my edits (this language)", lines=2,
                             placeholder="Empty so far: fix a word in the transcript or Read along and it "
@@ -137,19 +155,21 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                 # ---- Right: result ----------------------------------------------------------
                 with gr.Column(scale=3):
                     step("② Result")
+                    now_title = gr.Markdown("", elem_id="now-title")  # the audio being worked on
                     with gr.Row(equal_height=True):
                         pbar = gr.HTML("", padding=False, visible=False, scale=1)  # while transcribing
                         stop_top = gr.Button("■ Stop", visible=False, scale=0, min_width=100,
                                              elem_classes="stop-btn")
                         resume_top = gr.Button("⏯ Resume", visible=False, scale=0, min_width=120,
                                                variant="primary")
-                    with gr.Tabs():
+                    with gr.Tabs(overflow_behavior="wrap"):
                         with gr.Tab("Transcript"):
                             transcript = gr.Textbox(
                                 show_label=False, lines=16, max_lines=16, interactive=True,
                                 buttons=["copy"], elem_classes="transcript",
                                 placeholder="The transcript appears here. You can edit it; "
                                             "the downloads follow your edits.")
+                            copy_button(transcript, "copy-transcript")
                         with gr.Tab("▶ Read along") as readalong_tab:
                             readalong_view = gr.HTML(READALONG_EMPTY, padding=False)
                             # Filled and pressed by the page script when an edit is saved.
@@ -159,6 +179,10 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                         with gr.Tab("Subtitles (.srt)"):
                             srt_view = gr.Textbox(show_label=False, lines=16, max_lines=16,
                                                   buttons=["copy"], elem_classes="srt", autoscroll=False)
+                            copy_button(srt_view, "copy-srt")
+                            srt_upload = gr.UploadButton(
+                                "⬆ Upload an edited .srt (e.g. fixed by Claude)", size="sm",
+                                file_types=[".srt", ".vtt"], type="filepath")
                         with gr.Tab("AI-fixed (local)"):
                             with gr.Row(equal_height=True):
                                 llm = gr.Dropdown([], label="Ollama model", allow_custom_value=True, scale=3)
@@ -173,6 +197,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                                 placeholder="Press 'Fix transcript' to add punctuation and fix spelling "
                                             "with a free AI on this PC (Ollama). Slower and less accurate "
                                             "than Claude; check the result.")
+                            copy_button(corrected, "copy-fixed")
                             with gr.Row(elem_classes="downloads"):
                                 fixed_txt_btn = gr.DownloadButton("⬇ Fixed text (.txt)", interactive=False)
                                 fixed_srt_btn = gr.DownloadButton("⬇ Fixed subtitles (.srt)",
@@ -190,6 +215,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                                 show_label=False, lines=12, max_lines=12, interactive=True,
                                 buttons=["copy"], elem_classes="transcript",
                                 placeholder="00:00 Introduction\n03:40 …")
+                            copy_button(chapters_out, "copy-chapters")
                             chapters_file = gr.DownloadButton("⬇ Chapters (.txt)", interactive=False)
                             with gr.Accordion("Or ask Claude (better chapters, needs internet)", open=False):
                                 claude_chapters_btn = gr.Button("📋 Make a prompt for Claude", size="sm")
@@ -254,6 +280,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                     live_text = gr.Textbox(show_label=False, lines=16, max_lines=16, interactive=True,
                                            buttons=["copy"], elem_classes="transcript", autoscroll=True,
                                            placeholder="Your words appear here…")
+                    copy_button(live_text, "copy-live")
                     live_txt_btn = gr.DownloadButton("⬇ Text (.txt)", interactive=False)
                     live_entry = gr.State(None)
 
@@ -336,7 +363,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
 
     transcribe_event = btn.click(busy_buttons("transcribe"), None, controls).then(
         run, [audio, title, model_name, quantize, use_lm, hotwords, start, end, digits, speakers,
-              use_learned, video_src, source],
+              use_learned, video_src, source, w_prompt, w_vad, w_silence, w_carry],
         run_outputs,
         show_progress="hidden")  # our own progress bar above the transcript shows it
     resume_event = resume_btn.click(busy_buttons("transcribe"), None, controls).then(
@@ -362,7 +389,7 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     claude_chapters_btn.click(claude_prompt, [transcript, segs, language], claude_chapters)
     batch_event = batch_btn.click(busy_buttons("batch"), None, controls).then(
         run_batch, [batch_queue, batch_lang, quantize, use_lm, digits, speakers, use_learned,
-                    cookies_file, use_browser],
+                    cookies_file, use_browser, w_vad, w_silence, w_carry],
         [batch_queue, batch_table, batch_bar], show_progress="hidden")
     for trigger in (batch_add.click, batch_link.submit):
         trigger(add_links, [batch_link, batch_queue], [batch_link, batch_queue, batch_table, batch_pick])
@@ -423,9 +450,11 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
     for button in (stop, stop_top, batch_stop):
         # Instant feedback from the browser: while a model loads the server can take a few
         # seconds to answer.
-        button.click(None, None, [status, pbar], js=f"() => ['⏹ Stopping…', {json.dumps(stopping)}]")
+        # The transcript's bar only while transcribing (it keeps e.g. "✅ Done" during an AI fix).
+        button.click(None, [busy, pbar], [status, pbar],
+                     js=f"(kind, bar) => ['⏹ Stopping…', kind === 'transcribe' ? {json.dumps(stopping)} : bar]")
         # queue=False: answer at once instead of waiting behind the busy queue.
-        button.click(stopped, idle_inputs + [busy], [status, pbar, fix_bar] + controls,
+        button.click(stopped, idle_inputs + [busy], [status, pbar, fix_bar, chapters_bar] + controls,
                      cancels=running, queue=False)
     clear.click(clear_results, None,
                 [start, end, transcript, txt_btn, srt_btn, srt_view, corrected, fixed_txt_btn,
@@ -473,6 +502,13 @@ with gr.Blocks(title="Bangla STT", delete_cache=(3600, 3600), fill_width=True) a
                     [corrected, title, entry], fixed_txt_btn, trigger_mode="always_last")
     corrected.blur(lambda t, s, ti: edited_subtitles(t, s, ti, " (fixed).srt")[0],
                    [corrected, segs, title], fixed_srt_btn)
+
+    srt_upload.upload(uploaded_subtitles, [srt_upload, segs, title, entry, language],
+                      [transcript, txt_btn, srt_btn, srt_view, learned_box])
+    title.change(lambda t: f"🎧 **{t}**" if t and t != "recording" else "", title, now_title)
+    quit_btn.click(lambda: (gr.Button(visible=False), gr.Button(visible=True)), None, [quit_btn, quit_yes])
+    quit_yes.click(quit_app, None, ram)
+    demo.load(lambda: PHONE_NOTE["text"], None, phone_note)
 
     corrected.change(text_choices, corrected, [claude_text, export_which])
 
@@ -551,7 +587,7 @@ def main():
     parser = argparse.ArgumentParser(description="Bangla & English speech-to-text in the browser.")
     parser.add_argument("--phone", action="store_true",
                         help="also open it to phones on the same Wi-Fi (HTTPS, with a password)")
-    parser.add_argument("--password", help="password for --phone (default: a new random one)")
+    parser.add_argument("--password", help="password for --phone (default: one made once and kept)")
     parser.add_argument("--port", type=int, default=7860)
     args = parser.parse_args()
 
@@ -563,16 +599,18 @@ def main():
     if args.phone:
         ip = lan_ip()
         cert, key = certificate(ip)
-        password = args.password or new_password()
+        password = args.password or saved_password()
         options = {"server_name": "0.0.0.0", "ssl_certfile": str(cert), "ssl_keyfile": str(key),
                    "ssl_verify": False, "auth": (PHONE_USER, password),
-                   "auth_message": "Bangla STT — enter the password shown in the PC's terminal."}
+                   "auth_message": f"Bangla STT — user {PHONE_USER}; the password is at the top of "
+                                   f"the app on the PC (or in {PASSWORD_FILE})."}
+        PHONE_NOTE["text"] = f"📱 Phone (same Wi-Fi): **https://{ip}:{args.port}** · user `{PHONE_USER}` · password `{password}`"
     # No footer links: the API docs, settings and run history are developer tools; History
     # above keeps the results. allowed_paths: History audio is played and downloaded from there.
     demo.queue().launch(theme=THEME, css=CSS, head=BEEP_JS + READALONG_JS, footer_links=[], run_history=False,
                         allowed_paths=[str(history.HISTORY_DIR)], prevent_thread_lock=True, quiet=True,
                         server_port=args.port, **options)
-    print(f"Bangla STT is running at {demo.local_url}  —  press Ctrl+C here to stop it.", flush=True)
+    print(f"Bangla STT is running at {demo.local_url}  —  press Ctrl+C here (or ⏻ Quit on the page) to stop it.", flush=True)
     if args.phone:
         print(f"\nOn your phone (same Wi-Fi) open  https://{ip}:{args.port}\n"
               f"  user: {PHONE_USER}   password: {password}\n"

@@ -16,8 +16,11 @@ Opens http://127.0.0.1:7860.
 shows the address (e.g. `https://192.168.1.20:7860`) and a password. It uses HTTPS with a
 certificate made on this PC, so phone browsers allow the microphone; the phone warns about the
 certificate once — tap *Advanced → Proceed*. Needs `ffmpeg` on the system, and a C++ compiler + cmake the
-first time (to build `kenlm`). Stop the app with **Ctrl+C** (or by closing the shortcut's
-terminal window) — Ctrl+Z only pauses it and keeps its memory.
+first time (to build `kenlm`). Stop the app with **⏻ Quit** at the top of the page, or **Ctrl+C**
+in its terminal — Ctrl+Z only pauses it and keeps its memory. The shortcut starts it without a
+terminal (`./start.sh`); its output goes to `~/.local/state/bangla-stt/app.log` (the run before
+is `app.log.1`), and if it crashes a notification says so. Right-click the shortcut for
+*Show the log*.
 
 ## Transcribe
 
@@ -27,7 +30,10 @@ terminal window) — Ctrl+Z only pauses it and keeps its memory.
    (`90`, `1:30`, `0:01:30`). The language (Bangla or English) is detected and set for you.
 2. **Transcribe**. A progress bar shows how far it is and the time left. **Stop** keeps what
    is done; **⏯ Resume** continues from the last word. The transcript box is editable and the
-   downloads (.txt, .srt) follow your edits. **▶ Read along** shows the text next to the audio:
+   downloads (.txt, .srt) follow your edits. The title of the audio stays shown above the result.
+   Fixed the .srt elsewhere (e.g. had Claude correct the missed words)? **⬆ Upload an edited
+   .srt** in the *Subtitles* tab: it becomes the transcript and subtitles, timings as in the
+   file, and its corrected words are learned for next time. **▶ Read along** shows the text next to the audio:
    click any word to hear it, and the word being played is highlighted; ⏪/⏩ 5 s, speed,
    Follow, text size (A−/A+) and **⛶ Focus** (the whole window, for long texts) are in its
    toolbar, and Space / ← → / E work as keys. **✏️ Edit text** there lets you fix words while listening

@@ -12,7 +12,7 @@ def busy_buttons(kind):
     def busy():
         off = gr.Button(interactive=False)
         return (gr.Button("⏳ Working…", interactive=False), gr.Button(interactive=True),
-                gr.Button(visible=kind == "transcribe"), off, off, off, off,
+                gr.Button(visible=kind != "batch"), off, off, off, off,  # top Stop: Batch has its own
                 gr.Button(visible=False), gr.Button(visible=False), off, gr.Button(interactive=True),
                 *(gr.update(interactive=False),) * 4,
                 gr.Button(visible=False), off, off, off, kind)
@@ -34,7 +34,7 @@ def stopped(audio, text, partial, fix_partial, kind):
     if kind in ("transcribe", "batch"):
         WORKER.cancel()  # the worker ends the job after the current piece
     message = "⏹ Stopped."
-    pbar_update, fix_update = gr.skip(), gr.skip()
+    pbar_update, fix_update, chapters_update = gr.skip(), gr.skip(), gr.skip()
     if kind == "transcribe":
         message = "⏹ Stopped — the text so far is kept (and saved in History)."
         if partial:
@@ -44,7 +44,11 @@ def stopped(audio, text, partial, fix_partial, kind):
     elif kind == "fix":
         message = "⏹ AI fix stopped — press ⏯ Resume fix to continue."
         fix_update = bar(message, done=True)
-    return (message, pbar_update, fix_update) + idle_buttons(audio, text, partial, fix_partial)
+    elif kind == "chapters":
+        message = "⏹ Chapters stopped — the ones made so far are kept."
+        chapters_update = bar(message, done=True)
+    return (message, pbar_update, fix_update, chapters_update) + idle_buttons(audio, text, partial,
+                                                                              fix_partial)
 
 
 def enable_if(value, busy):

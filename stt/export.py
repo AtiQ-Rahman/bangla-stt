@@ -27,6 +27,26 @@ def srt_from_cues(cues: list[tuple[float, float, str]]) -> str:
                      for i, (start, end, text) in enumerate(cues, 1))
 
 
+_SRT_TIME = re.compile(r"(\d+):(\d\d):(\d\d)[,.](\d{1,3})\s*-->\s*(\d+):(\d\d):(\d\d)[,.](\d{1,3})")
+
+
+def parse_srt(text: str) -> list[tuple[float, float, str]]:
+    """(start, end, text) cues of an .srt (or .vtt) file, e.g. one the user edited elsewhere."""
+    def sec(h, m, s, ms):
+        return int(h) * 3600 + int(m) * 60 + int(s) + int(ms.ljust(3, "0")) / 1000
+
+    cues = []
+    for block in re.split(r"\n\s*\n", text.replace("\r\n", "\n").lstrip("\ufeff")):
+        lines = block.strip().split("\n")
+        for i, line in enumerate(lines):
+            if m := _SRT_TIME.search(line):
+                words = " ".join(x.strip() for x in lines[i + 1:] if x.strip())
+                if words:
+                    cues.append((sec(*m.groups()[:4]), sec(*m.groups()[4:]), words))
+                break
+    return cues
+
+
 def write_docx(text: str, path: Path, title: str) -> Path:
     """A Word document with the title as heading and one paragraph per transcript paragraph."""
     from docx import Document

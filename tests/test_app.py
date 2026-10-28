@@ -23,7 +23,7 @@ def test_button_state_handlers_match_controls():
     assert set(outputs_of("idle_buttons")) == {n}
     assert len(controls.busy_buttons("transcribe")()) == n
     assert len(controls.idle_buttons("a.mp3", "text", None, None)) == n
-    assert len(controls.stopped("a.mp3", "text", None, None, "transcribe")) == n + 3
+    assert len(controls.stopped("a.mp3", "text", None, None, "transcribe")) == n + 4
 
 
 @pytest.mark.parametrize("fn", ["clear_results"])
